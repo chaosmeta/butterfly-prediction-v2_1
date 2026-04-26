@@ -1359,23 +1359,41 @@
 <script>
 // ─── Config ───
 const CONFIG = {
-  VAULT_ADDRESS: '0x0000000000000000000000000000000000000000',
-  TOKEN_ADDRESS: '0x0000000000000000000000000000000000000000',
+  VAULT_ADDRESS: '0x6Aa38f7a86c3de25a628d7E38Ebd7505999674d7',
+  TOKEN_ADDRESS: '0x0000000000000000000000000000000000000000', // 待定 — flap.sh 创建代币后填这里
   CHAIN_ID: 56,
   RPC_URL: 'https://bsc-dataseed.binance.org/',
 };
 
 const VAULT_ABI = [
+  // ─── User actions ───
   'function placeBet(uint8 slot, bool isUp, uint16 shares)',
   'function claim(uint8 slot, uint256 rid)',
   'function settle(uint8 slot)',
   'function flushInflow()',
   'function withdrawFee()',
   'function refreshTaxRate()',
+
+  // ─── Owner-only (admin) ───
+  'function setToken(address _token)',
+  'function setSharePrice(uint256 newPrice)',
+  'function setFeeRecipient(address newRecipient)',
+  'function transferOwnership(address newOwner)',
+  'function emergencyWithdrawBNB(address to, uint256 amount)',
+  'function emergencyWithdrawToken(address tokenAddr, address to, uint256 amount)',
+
+  // ─── State views ───
+  'function owner() view returns (address)',
+  'function tokenLocked() view returns (bool)',
+  'function token() view returns (address)',
   'function feeRecipient() view returns (address)',
   'function pendingFee() view returns (uint256)',
   'function totalFeeCollected() view returns (uint256)',
   'function taxRateBps() view returns (uint256)',
+  'function pendingInflow() view returns (uint256)',
+  'function reservePool() view returns (uint256)',
+
+  // ─── Computed views ───
   'function getCurrentRound(uint8 slot) view returns (uint256 roundId, uint256 startTime, uint256 endTime, uint256 openPrice, uint256 currentPrice, uint256 totalUpShares, uint256 totalDownShares, uint256 bnbPool, uint256 sharePriceLocked, uint256 secondsLeft, bool bettingOpen)',
   'function previewPayout(uint8 slot, bool isUp, uint16 shares) view returns (uint256)',
   'function getMyBet(uint8 slot, uint256 rid) view returns (uint16 shares, bool isUp, bool claimed, bool isWinner, bool roundSettled, uint256 estimatedClaim)',
@@ -1385,8 +1403,17 @@ const VAULT_ABI = [
   'function currentRoundId(uint8 slot) view returns (uint256)',
   'function sharePrice() view returns (uint256)',
   'function getCurrentPrice() view returns (uint256)',
+
+  // ─── Events ───
   'event BetPlaced(uint8 indexed slot, uint256 indexed roundId, address indexed user, bool isUp, uint16 shares, uint256 tokenAmount)',
   'event RoundSettled(uint8 indexed slot, uint256 indexed roundId, uint256 openPrice, uint256 closePrice, bool upWon, uint256 winnersPool, uint256 rolledOver, uint256 burned)',
+  'event Claimed(uint8 indexed slot, uint256 indexed roundId, address indexed user, uint256 tokenRefund, uint256 bnbWon)',
+  'event TokenSet(address indexed token)',
+  'event OwnershipTransferred(address indexed previousOwner, address indexed newOwner)',
+  'event FeeAccrued(uint256 amount)',
+  'event FeeWithdrawn(address indexed recipient, uint256 amount)',
+  'event EmergencyWithdrawnBNB(address indexed to, uint256 amount, address indexed by)',
+  'event EmergencyWithdrawnToken(address indexed tokenAddr, address indexed to, uint256 amount, address indexed by)',
 ];
 
 const ERC20_ABI = [
