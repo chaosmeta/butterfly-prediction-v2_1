@@ -1,0 +1,9 @@
+cache/
+out/
+broadcast/
+.env
+node_modules/
+lib/openzeppelin-contracts/
+lib/forge-std/
+*.swp
+.DS_Store
