@@ -953,7 +953,7 @@
     <div class="hero-eyebrow">A FLAP-Native Vault · 基于 Flap.sh 协议</div>
     <h1>
       Butterfly <span class="accent">Prediction</span>
-      <span class="cn">押 BFLY · 猜涨跌 · 输不亏代币 · 赢瓜分 BNB</span>
+      <span class="cn">押 蝴蝶预测 · 猜涨跌 · 输不亏代币 · 赢瓜分 BNB</span>
     </h1>
     <p class="hero-tagline">
       三档时间任选：20 分钟 · 1 小时 · 24 小时<br>
@@ -966,7 +966,7 @@
 <div class="container">
   <div class="price-ticker glass">
     <div class="ticker-item">
-      <div class="ticker-label">BFLY/BNB</div>
+      <div class="ticker-label">蝴蝶预测/BNB</div>
       <div class="ticker-value" id="currentPrice">—</div>
     </div>
     <div class="ticker-item">
@@ -1028,7 +1028,7 @@
         <div class="pool-value gold" id="poolBnb">—</div>
       </div>
       <div class="pool-item">
-        <div class="pool-label">每份 BFLY</div>
+        <div class="pool-label">每份 蝴蝶预测</div>
         <div class="pool-value" id="sharePriceLocked">—</div>
       </div>
     </div>
@@ -1065,7 +1065,7 @@
     <div class="shares-control">
       <div class="shares-label">
         <span>份数 (1-20)</span>
-        <span class="shares-cost" id="costLabel">需要 — BFLY</span>
+        <span class="shares-cost" id="costLabel">需要 — 蝴蝶预测</span>
       </div>
       <div class="shares-stepper">
         <button class="shares-btn" id="sharesMinus">−</button>
@@ -1103,7 +1103,7 @@
       <div class="step">
         <div class="step-num">ii.</div>
         <div class="step-title">选方向 + 份数</div>
-        <div class="step-desc">押涨或押跌，1 份 = 50 万 BFLY。最多 20 份。代币锁仓到结算。</div>
+        <div class="step-desc">押涨或押跌，1 份 = 50 万 蝴蝶预测。最多 20 份。代币锁仓到结算。</div>
       </div>
       <div class="step">
         <div class="step-num">iii.</div>
@@ -1294,7 +1294,7 @@ async function refreshRound() {
     document.getElementById('roundId').textContent = '轮次 #' + r.roundId.toString();
     document.getElementById('openPrice').textContent = fmtPrice(r.openPrice);
     document.getElementById('poolBnb').textContent = fmt(r.bnbPool, 4) + ' BNB';
-    document.getElementById('sharePriceLocked').textContent = fmt(r.sharePriceLocked) + ' BFLY';
+    document.getElementById('sharePriceLocked').textContent = fmt(r.sharePriceLocked) + ' 蝴蝶预测';
     document.getElementById('upShares').textContent = r.totalUpShares.toString();
     document.getElementById('downShares').textContent = r.totalDownShares.toString();
 
@@ -1326,7 +1326,7 @@ async function refreshRound() {
     }
 
     const cost = BigInt(currentShares) * r.sharePriceLocked;
-    document.getElementById('costLabel').textContent = '需要 ' + fmt(cost) + ' BFLY';
+    document.getElementById('costLabel').textContent = '需要 ' + fmt(cost) + ' 蝴蝶预测';
 
     updateCountdown(Number(r.secondsLeft), r.bettingOpen);
   } catch (e) {
@@ -1508,7 +1508,7 @@ async function placeBet() {
   try {
     const bal = await token.balanceOf(account);
     if (bal < tokenCost) {
-      toast('代币余额不足，需要 ' + fmt(tokenCost) + ' BFLY', 'error');
+      toast('代币余额不足，需要 ' + fmt(tokenCost) + ' 蝴蝶预测', 'error');
       btn.disabled = false; btn.textContent = orig;
       return;
     }
@@ -1566,7 +1566,7 @@ function renderShares() {
   document.getElementById('sharesButterflies').textContent = '🦋'.repeat(Math.min(currentShares, 20));
   if (cachedRound) {
     const cost = BigInt(currentShares) * cachedRound.sharePriceLocked;
-    document.getElementById('costLabel').textContent = '需要 ' + fmt(cost) + ' BFLY';
+    document.getElementById('costLabel').textContent = '需要 ' + fmt(cost) + ' 蝴蝶预测';
   }
   refreshPayouts();
   updatePlaceBetButton();
