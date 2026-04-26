@@ -9,6 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@300;400;500;700&family=Noto+Serif+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.0/dist/ethers.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.17.0/dist/index.umd.js"></script>
 <style>
   /* ════════════════════════════════════════════════
      蝴蝶预测 · Cosmic Starlight Theme
@@ -876,6 +877,211 @@
     letter-spacing: 0.1em;
   }
 
+  /* ─── Wallet Picker Modal ─── */
+  .wallet-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 6, 18, 0.75);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 300;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    animation: fadeIn 0.2s ease;
+  }
+
+  .wallet-modal-backdrop.open { display: flex; }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  .wallet-modal {
+    width: 100%;
+    max-width: 420px;
+    background: linear-gradient(135deg, rgba(31, 15, 61, 0.96) 0%, rgba(10, 6, 18, 0.98) 100%);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--starlight);
+    border-radius: 8px;
+    padding: 24px;
+    position: relative;
+    box-shadow:
+      0 20px 60px rgba(0, 0, 0, 0.7),
+      0 0 80px rgba(155, 126, 232, 0.3);
+    animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  @keyframes slideUp {
+    from { transform: translateY(40px); opacity: 0; }
+    to   { transform: translateY(0); opacity: 1; }
+  }
+
+  .wallet-modal::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0;
+    width: 28px; height: 28px;
+    border-top: 1px solid var(--gold-bright);
+    border-left: 1px solid var(--gold-bright);
+    opacity: 0.6;
+    border-top-left-radius: 8px;
+  }
+
+  .wallet-modal::after {
+    content: "";
+    position: absolute;
+    bottom: 0; right: 0;
+    width: 28px; height: 28px;
+    border-bottom: 1px solid var(--gold-bright);
+    border-right: 1px solid var(--gold-bright);
+    opacity: 0.6;
+    border-bottom-right-radius: 8px;
+  }
+
+  .wallet-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .wallet-modal-title {
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 500;
+    color: var(--moonlight);
+  }
+
+  .wallet-modal-sub {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-top: 4px;
+  }
+
+  .wallet-modal-close {
+    background: none;
+    border: none;
+    color: var(--silver);
+    font-size: 22px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: all 0.2s;
+  }
+
+  .wallet-modal-close:hover {
+    background: rgba(232, 217, 255, 0.1);
+    color: var(--moonlight);
+  }
+
+  .wallet-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+
+  .wallet-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    background: rgba(20, 9, 42, 0.5);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: left;
+    font-family: var(--font-cn);
+    color: var(--starlight);
+    width: 100%;
+  }
+
+  .wallet-item:hover {
+    background: rgba(155, 126, 232, 0.12);
+    border-color: var(--silver);
+    transform: translateX(2px);
+  }
+
+  .wallet-item-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    object-fit: cover;
+    background: rgba(0, 0, 0, 0.3);
+    flex-shrink: 0;
+  }
+
+  .wallet-item-icon-placeholder {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, var(--rose-pink) 0%, var(--aurora-blue) 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+
+  .wallet-item-name {
+    font-size: 15px;
+    font-weight: 500;
+    flex: 1;
+    color: var(--moonlight);
+  }
+
+  .wallet-item-tag {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--gold-bright);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    opacity: 0.85;
+  }
+
+  .wallet-empty {
+    text-align: center;
+    padding: 32px 16px;
+    color: var(--dim);
+    font-family: var(--font-display);
+    font-style: italic;
+  }
+
+  .wallet-modal-footer {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--dim);
+    letter-spacing: 0.1em;
+  }
+
+  .wallet-modal-footer a {
+    color: var(--silver);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--silver);
+  }
+
+  /* WalletConnect official QR modal — match our theme */
+  wcm-modal, w3m-modal {
+    --wcm-z-index: 400 !important;
+    --wcm-accent-color: var(--rose-pink) !important;
+  }
+
   /* ─── Toast ─── */
   .toast-container {
     position: fixed;
@@ -1126,6 +1332,25 @@
   </div>
 </footer>
 
+<!-- Wallet Picker Modal -->
+<div class="wallet-modal-backdrop" id="walletModal">
+  <div class="wallet-modal" role="dialog" aria-labelledby="walletModalTitle">
+    <div class="wallet-modal-header">
+      <div>
+        <div class="wallet-modal-title" id="walletModalTitle">连接钱包</div>
+        <div class="wallet-modal-sub">Connect Wallet</div>
+      </div>
+      <button class="wallet-modal-close" id="walletModalClose" aria-label="关闭">✕</button>
+    </div>
+    <div class="wallet-list" id="walletList">
+      <!-- 动态填充 -->
+    </div>
+    <div class="wallet-modal-footer">
+      支持 EIP-6963 · WalletConnect v2
+    </div>
+  </div>
+</div>
+
 <div class="toast-container" id="toastContainer"></div>
 
 <!-- ═══════════════════════════════════════
@@ -1222,42 +1447,293 @@ function toast(msg, type = '') {
   }, 4000);
 }
 
-async function connect() {
-  if (!window.ethereum) {
-    toast('请安装 MetaMask 或其他兼容钱包', 'error');
-    return;
-  }
-  try {
-    provider = new ethers.BrowserProvider(window.ethereum);
-    const accounts = await provider.send('eth_requestAccounts', []);
-    account = accounts[0];
+// ─── Wallet connection (EIP-6963 + WalletConnect v2) ───
 
-    const network = await provider.getNetwork();
-    if (Number(network.chainId) !== CONFIG.CHAIN_ID) {
-      try {
-        await window.ethereum.request({
-          method: 'wallet_switchEthereumChain',
-          params: [{ chainId: '0x' + CONFIG.CHAIN_ID.toString(16) }],
-        });
-      } catch {
+// 你需要去 https://cloud.reown.com 申请一个免费的 Project ID
+// 没有 Project ID 时 WalletConnect 仍然可用但会有警告
+const WC_PROJECT_ID = 'YOUR_WALLETCONNECT_PROJECT_ID';
+
+// EIP-6963 wallet registry — 浏览器宣告的所有钱包都在这里
+const eip6963Providers = [];
+let activeEip1193Provider = null; // 当前选中的钱包的 1193 provider
+let walletConnectProvider = null;
+let lastChainId = null;
+
+// 监听 EIP-6963 公告
+window.addEventListener('eip6963:announceProvider', (event) => {
+  const detail = event.detail;
+  // 去重（按 rdns）
+  if (!eip6963Providers.find(p => p.info.rdns === detail.info.rdns)) {
+    eip6963Providers.push(detail);
+  }
+});
+// 触发所有钱包公告自己
+window.dispatchEvent(new Event('eip6963:requestProvider'));
+
+// 钱包选择弹窗控制
+const walletModalEl = document.getElementById('walletModal');
+const walletListEl = document.getElementById('walletList');
+const walletModalCloseEl = document.getElementById('walletModalClose');
+
+function openWalletModal() {
+  // 重新触发 6963 公告（可能在打开瞬间又有新钱包安装）
+  window.dispatchEvent(new Event('eip6963:requestProvider'));
+
+  // 渲染列表
+  walletListEl.innerHTML = '';
+
+  // EIP-6963 钱包
+  if (eip6963Providers.length > 0) {
+    for (const p of eip6963Providers) {
+      const btn = document.createElement('button');
+      btn.className = 'wallet-item';
+      btn.innerHTML = `
+        <img class="wallet-item-icon" src="${p.info.icon}" alt="" onerror="this.style.display='none'">
+        <span class="wallet-item-name">${escapeHtml(p.info.name)}</span>
+        <span class="wallet-item-tag">已安装</span>
+      `;
+      btn.addEventListener('click', () => connectInjected(p));
+      walletListEl.appendChild(btn);
+    }
+  } else if (window.ethereum) {
+    // 旧浏览器：没有 EIP-6963 但有 window.ethereum（兜底）
+    const btn = document.createElement('button');
+    btn.className = 'wallet-item';
+    btn.innerHTML = `
+      <div class="wallet-item-icon-placeholder">🦊</div>
+      <span class="wallet-item-name">浏览器钱包 / Browser Wallet</span>
+      <span class="wallet-item-tag">已安装</span>
+    `;
+    btn.addEventListener('click', () => connectLegacyInjected());
+    walletListEl.appendChild(btn);
+  }
+
+  // WalletConnect (始终显示)
+  const wcBtn = document.createElement('button');
+  wcBtn.className = 'wallet-item';
+  wcBtn.innerHTML = `
+    <div class="wallet-item-icon-placeholder" style="background: linear-gradient(135deg, #3b99fc 0%, #6ec5e8 100%);">
+      <svg width="22" height="22" viewBox="0 0 40 40" fill="none">
+        <path d="M11.4 14.5c4.7-4.6 12.4-4.6 17.2 0l.6.6c.2.2.2.6 0 .9l-2 2c-.1.1-.3.1-.4 0l-.8-.8c-3.3-3.2-8.7-3.2-12 0l-.9.9c-.1.1-.3.1-.4 0l-2-2c-.2-.2-.2-.6 0-.9l.7-.7zm21.2 4l1.8 1.7c.2.2.2.6 0 .9l-8.1 7.9c-.2.2-.6.2-.9 0l-5.7-5.6c-.1-.1-.2-.1-.2 0l-5.7 5.6c-.2.2-.6.2-.9 0L4.7 21c-.2-.2-.2-.6 0-.9l1.8-1.7c.2-.2.6-.2.9 0L13 24c.1.1.2.1.2 0l5.7-5.6c.2-.2.6-.2.9 0l5.7 5.6c.1.1.2.1.2 0L31.4 18c.4-.2.7-.2.9 0z" fill="white"/>
+      </svg>
+    </div>
+    <span class="wallet-item-name">WalletConnect</span>
+    <span class="wallet-item-tag">扫码 · 移动端</span>
+  `;
+  wcBtn.addEventListener('click', () => connectWalletConnect());
+  walletListEl.appendChild(wcBtn);
+
+  // 如果连 6963 钱包和 window.ethereum 都没有
+  if (eip6963Providers.length === 0 && !window.ethereum) {
+    const hint = document.createElement('div');
+    hint.className = 'wallet-empty';
+    hint.innerHTML = `没检测到浏览器钱包<br><span style="font-size:13px;opacity:0.7;">用 WalletConnect 扫码连接手机钱包 ↑</span>`;
+    walletListEl.insertBefore(hint, walletListEl.firstChild);
+  }
+
+  walletModalEl.classList.add('open');
+}
+
+function closeWalletModal() {
+  walletModalEl.classList.remove('open');
+}
+
+walletModalCloseEl.addEventListener('click', closeWalletModal);
+walletModalEl.addEventListener('click', (e) => {
+  if (e.target === walletModalEl) closeWalletModal();
+});
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ─── Connect: EIP-6963 ───
+async function connectInjected(detail) {
+  closeWalletModal();
+  try {
+    const eip1193 = detail.provider;
+    const accounts = await eip1193.request({ method: 'eth_requestAccounts' });
+    if (!accounts || accounts.length === 0) {
+      toast('用户拒绝了连接', 'error');
+      return;
+    }
+    activeEip1193Provider = eip1193;
+    await onConnected(eip1193, accounts[0], detail.info.name);
+  } catch (e) {
+    console.error(e);
+    toast('连接失败: ' + (e.shortMessage || e.message || e), 'error');
+  }
+}
+
+// ─── Connect: 旧浏览器 window.ethereum 兜底 ───
+async function connectLegacyInjected() {
+  closeWalletModal();
+  try {
+    const eip1193 = window.ethereum;
+    const accounts = await eip1193.request({ method: 'eth_requestAccounts' });
+    activeEip1193Provider = eip1193;
+    await onConnected(eip1193, accounts[0], '浏览器钱包');
+  } catch (e) {
+    console.error(e);
+    toast('连接失败: ' + (e.shortMessage || e.message || e), 'error');
+  }
+}
+
+// ─── Connect: WalletConnect v2 ───
+async function connectWalletConnect() {
+  closeWalletModal();
+  try {
+    if (typeof globalThis['@walletconnect/ethereum-provider'] === 'undefined' && typeof window['@walletconnect/ethereum-provider'] === 'undefined') {
+      toast('WalletConnect 库加载失败 — 请检查网络', 'error');
+      return;
+    }
+
+    const WCProviderModule =
+      globalThis['@walletconnect/ethereum-provider'] ||
+      window['@walletconnect/ethereum-provider'];
+
+    toast('正在初始化 WalletConnect…', '');
+
+    walletConnectProvider = await WCProviderModule.EthereumProvider.init({
+      projectId: WC_PROJECT_ID,
+      chains: [CONFIG.CHAIN_ID],
+      showQrModal: true,
+      rpcMap: { [CONFIG.CHAIN_ID]: CONFIG.RPC_URL },
+      metadata: {
+        name: '蝴蝶预测 · Butterfly Prediction',
+        description: '三档涨跌预测 · 输不亏代币 · 赢瓜分 BNB',
+        url: window.location.origin,
+        icons: [window.location.origin + '/assets/logo.png'],
+      },
+      qrModalOptions: {
+        themeMode: 'dark',
+        themeVariables: {
+          '--wcm-accent-color': '#d670a8',
+          '--wcm-background-color': '#1f0f3d',
+        },
+      },
+    });
+
+    await walletConnectProvider.connect();
+    const accounts = await walletConnectProvider.request({ method: 'eth_accounts' });
+    if (!accounts || accounts.length === 0) {
+      toast('未获取到账户', 'error');
+      return;
+    }
+
+    // 监听断开/账号切换
+    walletConnectProvider.on('disconnect', () => {
+      handleDisconnect();
+    });
+    walletConnectProvider.on('accountsChanged', (accs) => {
+      if (!accs || accs.length === 0) handleDisconnect();
+      else { account = accs[0]; updateUiAfterConnect(); }
+    });
+
+    activeEip1193Provider = walletConnectProvider;
+    await onConnected(walletConnectProvider, accounts[0], 'WalletConnect');
+  } catch (e) {
+    console.error(e);
+    toast('WalletConnect 连接失败: ' + (e.shortMessage || e.message || e), 'error');
+  }
+}
+
+// ─── 共享：连接成功后处理 ───
+async function onConnected(eip1193, addr, walletName) {
+  account = addr;
+  provider = new ethers.BrowserProvider(eip1193, 'any');
+
+  // 检查链
+  const network = await provider.getNetwork();
+  lastChainId = Number(network.chainId);
+  if (lastChainId !== CONFIG.CHAIN_ID) {
+    try {
+      await eip1193.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: '0x' + CONFIG.CHAIN_ID.toString(16) }],
+      });
+    } catch (switchErr) {
+      // 4902 = chain not added
+      if (switchErr.code === 4902 || switchErr.data?.originalError?.code === 4902) {
+        try {
+          await eip1193.request({
+            method: 'wallet_addEthereumChain',
+            params: [{
+              chainId: '0x' + CONFIG.CHAIN_ID.toString(16),
+              chainName: 'BNB Smart Chain',
+              nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
+              rpcUrls: [CONFIG.RPC_URL],
+              blockExplorerUrls: ['https://bscscan.com'],
+            }],
+          });
+        } catch {
+          toast('请手动切换到 BNB Chain', 'error');
+          return;
+        }
+      } else {
         toast('请切换到 BNB Chain', 'error');
         return;
       }
     }
-
-    signer = await provider.getSigner();
-    vault = new ethers.Contract(CONFIG.VAULT_ADDRESS, VAULT_ABI, signer);
-    token = new ethers.Contract(CONFIG.TOKEN_ADDRESS, ERC20_ABI, signer);
-
-    document.getElementById('connectBtn').textContent = shortAddr(account);
-    toast('钱包已连接', 'success');
-
-    refreshAll();
-    refreshMyBets();
-  } catch (e) {
-    console.error(e);
-    toast('连接失败: ' + (e.shortMessage || e.message), 'error');
+    // 切链后刷新 provider
+    provider = new ethers.BrowserProvider(eip1193, 'any');
   }
+
+  signer = await provider.getSigner();
+  vault = new ethers.Contract(CONFIG.VAULT_ADDRESS, VAULT_ABI, signer);
+  token = new ethers.Contract(CONFIG.TOKEN_ADDRESS, ERC20_ABI, signer);
+
+  // 监听账户/链变化
+  if (eip1193.on) {
+    eip1193.on('accountsChanged', (accs) => {
+      if (!accs || accs.length === 0) handleDisconnect();
+      else { account = accs[0]; updateUiAfterConnect(); refreshAll(); refreshMyBets(); }
+    });
+    eip1193.on('chainChanged', () => {
+      window.location.reload();
+    });
+    eip1193.on('disconnect', () => handleDisconnect());
+  }
+
+  // 持久化最近用的钱包
+  try { localStorage.setItem('bp_lastWallet', walletName); } catch {}
+
+  updateUiAfterConnect();
+  toast(`已连接 · ${walletName}`, 'success');
+  refreshAll();
+  refreshMyBets();
+}
+
+function updateUiAfterConnect() {
+  document.getElementById('connectBtn').textContent = shortAddr(account);
+}
+
+function handleDisconnect() {
+  account = null;
+  provider = null;
+  signer = null;
+  vault = null;
+  token = null;
+  activeEip1193Provider = null;
+  if (walletConnectProvider) {
+    try { walletConnectProvider.disconnect(); } catch {}
+    walletConnectProvider = null;
+  }
+  document.getElementById('connectBtn').textContent = '连接钱包';
+  try { localStorage.removeItem('bp_lastWallet'); } catch {}
+  toast('钱包已断开', '');
+}
+
+// 主入口
+async function connect() {
+  // 已连接 → 显示断开选项
+  if (account) {
+    if (confirm(`已连接：${shortAddr(account)}\n\n确认要断开吗？`)) {
+      handleDisconnect();
+    }
+    return;
+  }
+  openWalletModal();
 }
 
 async function getReadProvider() {
@@ -1598,9 +2074,47 @@ refreshAll();
 setInterval(refreshAll, 15000);
 setInterval(refreshMyBets, 30000);
 
-if (window.ethereum && window.ethereum.selectedAddress) {
-  connect();
+// ─── Auto-reconnect ───
+// 只在用户上次确实手动连过的情况下才尝试自动重连
+// 避免每次刷新页面都弹钱包窗
+async function tryAutoReconnect() {
+  let lastWallet;
+  try { lastWallet = localStorage.getItem('bp_lastWallet'); } catch {}
+  if (!lastWallet) return;
+
+  // 等 EIP-6963 公告就位（200ms）
+  await new Promise(r => setTimeout(r, 200));
+  window.dispatchEvent(new Event('eip6963:requestProvider'));
+  await new Promise(r => setTimeout(r, 100));
+
+  // 找之前用的钱包
+  const found = eip6963Providers.find(p => p.info.name === lastWallet);
+  if (found) {
+    try {
+      const accs = await found.provider.request({ method: 'eth_accounts' });
+      if (accs && accs.length > 0) {
+        activeEip1193Provider = found.provider;
+        await onConnected(found.provider, accs[0], found.info.name);
+        return;
+      }
+    } catch {}
+  }
+
+  // 兜底：尝试 window.ethereum
+  if (lastWallet === '浏览器钱包' && window.ethereum && window.ethereum.selectedAddress) {
+    try {
+      const accs = await window.ethereum.request({ method: 'eth_accounts' });
+      if (accs && accs.length > 0) {
+        activeEip1193Provider = window.ethereum;
+        await onConnected(window.ethereum, accs[0], '浏览器钱包');
+      }
+    } catch {}
+  }
+
+  // WalletConnect 自动重连暂不做（每次都要重新批准签名，UX 不好）
 }
+
+tryAutoReconnect();
 </script>
 
 </body>
