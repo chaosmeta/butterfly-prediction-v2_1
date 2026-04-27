@@ -414,15 +414,26 @@ async function fetchBnbPrice(){
 }
 
 // 将合约内部价格（BNB/BFLY，1e18精度）转换为 USDT/BFLY 并格式化
+// 将浮点数转为十进制字符串，永远不使用科学计数法
+function toDecimalStr(n, maxSig){
+  if(n === 0) return '0'
+  // toFixed 位数：取有效数字位置 + maxSig
+  const digits = Math.max(0, -Math.floor(Math.log10(Math.abs(n)))) + maxSig
+  return n.toFixed(Math.min(digits, 20))
+}
+
 function fmtPriceUsdt(wei){
   if(!wei || wei === 0n) return '—'
   const bnbPerToken = parseFloat(ethers.formatEther(wei))
-  if(bnbUsdtPrice <= 0) return bnbPerToken.toExponential(4) + ' BNB'
+  if(bnbUsdtPrice <= 0){
+    // BNB 价格未取到，直接显示 BNB 值，十进制格式
+    return toDecimalStr(bnbPerToken, 4) + ' BNB'
+  }
   const usdtPerToken = bnbPerToken * bnbUsdtPrice
-  if(usdtPerToken < 0.000001) return '< $0.000001'
-  if(usdtPerToken < 0.01) return '$' + usdtPerToken.toFixed(8)
-  if(usdtPerToken < 1) return '$' + usdtPerToken.toFixed(6)
-  return '$' + usdtPerToken.toFixed(4)
+  if(usdtPerToken >= 1)       return '$' + usdtPerToken.toFixed(4)
+  if(usdtPerToken >= 0.0001)  return '$' + usdtPerToken.toFixed(6)
+  // 极小值：动态计算有效位数，不使用科学计数法
+  return '$' + toDecimalStr(usdtPerToken, 4)
 }
 
 fetchBnbPrice()
