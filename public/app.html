@@ -678,16 +678,25 @@ function updateSummary(){
 async function fetchRound(){
   try{
     const c = getReadPred()
-    const r = await c.getCurrentRound(currentSlot)
-    roundId          = r.roundId
-    const endTime    = r.endTime
-    const startTime  = r.startTime
-    const upShares   = r.totalUpShares
-    const downShares = r.totalDownShares
-    bettingOpen      = r.bettingOpen
-    const spl        = r.sharePriceLocked
+    const raw = await c.getCurrentRound(currentSlot)
+    // ethers v6 返回的 Result 对象同时支持索引和命名属性访问，
+    // 但命名属性有时因同名冲突会失效，统一用索引确保正确
+    // getCurrentRound 返回顺序：
+    // [0]roundId [1]startTime [2]endTime [3]openPrice [4]currentPrice
+    // [5]totalUpShares [6]totalDownShares [7]bnbPool [8]sharePriceLocked
+    // [9]secondsLeft [10]bettingOpen
+    roundId          = raw[0]
+    const startTime  = raw[1]
+    const endTime    = raw[2]
+    const openPrice  = raw[3]
+    const currentPrice = raw[4]
+    const upShares   = raw[5]
+    const downShares = raw[6]
+    const bnbPool    = raw[7]
+    const spl        = raw[8]
+    bettingOpen      = raw[10]
     sharePriceLocked = spl > 0n ? spl : SHARE_PRICE_DEFAULT
-    notStarted       = roundId===0n && endTime===0n
+    notStarted       = roundId === 0n && endTime === 0n
 
     // Round panel
     document.getElementById('round-id').textContent = notStarted ? '等待首笔下注' : `轮次 #${roundId}`
@@ -699,29 +708,29 @@ async function fetchRound(){
     else if(bettingOpen){ badge.className='badge badge-open'; badge.textContent='投注中' }
     else{ badge.className='badge badge-closed'; badge.textContent='已关闭' }
 
-    // Price stats
-    document.getElementById('stat-open').textContent    = r.openPrice>0n ? fmtToken(r.openPrice)+' BNB':  '—'
-    document.getElementById('stat-current').textContent = r.currentPrice>0n ? fmtToken(r.currentPrice)+' BNB': '—'
-    document.getElementById('stat-pool').textContent    = fmtBnb(r.bnbPool)
-    document.getElementById('stat-price').textContent   = fmtToken(sharePriceLocked,tokenDecimals)+' BFLY'
+    // Price stats — 价格单位是 1e18（内部 TWAP 价格），用 formatEther 转换
+    document.getElementById('stat-open').textContent    = openPrice > 0n ? ethers.formatEther(openPrice) + ' BNB' : '—'
+    document.getElementById('stat-current').textContent = currentPrice > 0n ? ethers.formatEther(currentPrice) + ' BNB' : '—'
+    document.getElementById('stat-pool').textContent    = fmtBnb(bnbPool)
+    document.getElementById('stat-price').textContent   = fmtToken(sharePriceLocked, tokenDecimals)+' BFLY'
 
     // Ratio
-    const total = Number(upShares)+Number(downShares)
-    const upPct = total>0 ? Math.round(Number(upShares)/total*100) : 50
-    document.getElementById('ratio-up').style.width   = upPct+'%'
-    document.getElementById('up-label').textContent   = `涨 ${upPct}%`
-    document.getElementById('down-label').textContent = `跌 ${100-upPct}%`
-    document.getElementById('up-shares').textContent  = upShares+' 份'
-    document.getElementById('down-shares').textContent = downShares+' 份'
+    const total = Number(upShares) + Number(downShares)
+    const upPct = total > 0 ? Math.round(Number(upShares) / total * 100) : 50
+    document.getElementById('ratio-up').style.width    = upPct + '%'
+    document.getElementById('up-label').textContent    = `涨 ${upPct}%`
+    document.getElementById('down-label').textContent  = `跌 ${100 - upPct}%`
+    document.getElementById('up-shares').textContent   = upShares + ' 份'
+    document.getElementById('down-shares').textContent = downShares + ' 份'
 
     // Countdown
     if(countdownTimer) clearInterval(countdownTimer)
     if(notStarted){
-      document.getElementById('countdown-display').textContent='--:--'
-      document.getElementById('countdown-sub').textContent='首笔下注后开始计时'
-      document.getElementById('progress-fill').style.width='0%'
+      document.getElementById('countdown-display').textContent = '--:--'
+      document.getElementById('countdown-sub').textContent = '首笔下注后开始计时'
+      document.getElementById('progress-fill').style.width = '0%'
     } else {
-      const end=Number(endTime), start=Number(startTime), dur=end-start
+      const end = Number(endTime), start = Number(startTime), dur = end - start
       function tick(){
         const left=Math.max(0,end-Math.floor(Date.now()/1000))
         document.getElementById('countdown-display').textContent=fmtCountdown(left)
