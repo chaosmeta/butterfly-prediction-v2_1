@@ -206,11 +206,11 @@
 
         <div class="stats">
           <div class="stat-item">
-            <div class="stat-label">开盘价</div>
+            <div class="stat-label">开盘价 (USDT)</div>
             <div class="stat-value" id="stat-open">—</div>
           </div>
           <div class="stat-item">
-            <div class="stat-label">当前价</div>
+            <div class="stat-label">当前价 (USDT)</div>
             <div class="stat-value" id="stat-current">—</div>
           </div>
           <div class="stat-item">
@@ -395,6 +395,38 @@ let notStarted   = true
 let roundId      = 0n
 let countdownTimer = null
 let pollTimer    = null
+let bnbUsdtPrice = 0  // BNB/USDT 实时价格
+
+// 从 Binance 公共 API 获取 BNB/USDT 价格，每 60 秒刷新一次
+async function fetchBnbPrice(){
+  try{
+    const res = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=BNBUSDT')
+    const data = await res.json()
+    bnbUsdtPrice = parseFloat(data.price)
+  } catch(e){
+    // Binance 失败时降级用 CoinGecko
+    try{
+      const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=binancecoin&vs_currencies=usd')
+      const data = await res.json()
+      bnbUsdtPrice = data?.binancecoin?.usd ?? 0
+    } catch{ bnbUsdtPrice = 0 }
+  }
+}
+
+// 将合约内部价格（BNB/BFLY，1e18精度）转换为 USDT/BFLY 并格式化
+function fmtPriceUsdt(wei){
+  if(!wei || wei === 0n) return '—'
+  const bnbPerToken = parseFloat(ethers.formatEther(wei))
+  if(bnbUsdtPrice <= 0) return bnbPerToken.toExponential(4) + ' BNB'
+  const usdtPerToken = bnbPerToken * bnbUsdtPrice
+  if(usdtPerToken < 0.000001) return '< $0.000001'
+  if(usdtPerToken < 0.01) return '$' + usdtPerToken.toFixed(8)
+  if(usdtPerToken < 1) return '$' + usdtPerToken.toFixed(6)
+  return '$' + usdtPerToken.toFixed(4)
+}
+
+fetchBnbPrice()
+setInterval(fetchBnbPrice, 60_000)
 
 // ─────────────────────────────────────────────
 //  CANVAS STARS
@@ -708,9 +740,9 @@ async function fetchRound(){
     else if(bettingOpen){ badge.className='badge badge-open'; badge.textContent='投注中' }
     else{ badge.className='badge badge-closed'; badge.textContent='已关闭' }
 
-    // Price stats — 价格单位是 1e18（内部 TWAP 价格），用 formatEther 转换
-    document.getElementById('stat-open').textContent    = openPrice > 0n ? ethers.formatEther(openPrice) + ' BNB' : '—'
-    document.getElementById('stat-current').textContent = currentPrice > 0n ? ethers.formatEther(currentPrice) + ' BNB' : '—'
+    // Price stats — 合约价格单位 1e18（BNB/BFLY），乘以 BNB/USDT 换算为 USDT 显示
+    document.getElementById('stat-open').textContent    = fmtPriceUsdt(openPrice)
+    document.getElementById('stat-current').textContent = fmtPriceUsdt(currentPrice)
     document.getElementById('stat-pool').textContent    = fmtBnb(bnbPool)
     document.getElementById('stat-price').textContent   = fmtToken(sharePriceLocked, tokenDecimals)+' BFLY'
 
@@ -809,7 +841,7 @@ async function handleBet(){
       toast('info','步骤 1/2','请在钱包中确认授权交易...')
 
       const approveTx = await tokenC.approve(PRED_ADDR, ethers.MaxUint256)
-      toast('info','授权交易已发送','等待上链确认...')
+      toast('info','授权��易已发送','等待上链确认...')
       await approveTx.wait()
       toast('success','授权成功','正在提交下注...')
     }
