@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import ButterflyApp from '@/components/ButterflyApp'
 
 export default function Home() {
-  redirect("/index.html");
+  return <ButterflyApp />
 }
