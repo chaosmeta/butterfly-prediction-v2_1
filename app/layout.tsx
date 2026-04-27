@@ -23,7 +23,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="zh-CN">
-      <body className={`${inter.variable} font-sans antialiased`}>
+      <body className={`${inter.variable} font-sans antialiased min-h-screen`} style={{ background: 'var(--color-bg)', color: 'var(--color-fg)' }}>
         <Providers>{children}</Providers>
       </body>
     </html>

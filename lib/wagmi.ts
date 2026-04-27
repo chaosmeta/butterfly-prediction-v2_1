@@ -15,9 +15,12 @@ export const bsc = defineChain({
   },
 })
 
+// ssr: true 告知 wagmi 在 SSR 阶段跳过需要浏览器 API（indexedDB 等）的初始化
 export const wagmiConfig = getDefaultConfig({
   appName: '蝴蝶预测',
   projectId: 'bf1c89fe908ae4a3bfa2e47f1d99d60f',
   chains: [bsc],
   ssr: true,
 })
+
+export type WagmiConfig = typeof wagmiConfig
