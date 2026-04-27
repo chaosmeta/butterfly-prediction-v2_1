@@ -1022,7 +1022,7 @@ async function triggerSettle(){
     const predC = getSignerPred()
     // 直接发交易，写死 gasLimit 300000（settle 实际约 15-20 万 gas）
     // 避免 estimateGas 因节点时间戳差异误判 "not yet"
-    const tx = await predC.settle(Number(currentSlot), { gasLimit: 300000n })
+    const tx = await predC.settle(Number(currentSlot), { gasLimit: 1000000n })
     toast('info','结算交易已发送','等待上链确认...')
     const receipt = await tx.wait()
     if(receipt.status === 0){
@@ -1051,7 +1051,7 @@ async function triggerSettleForRecord(slot, btn){
   btn.innerHTML = '<span class="spinner"></span> 结算中'
   try{
     const predC = getSignerPred()
-    const tx = await predC.settle(Number(slot), { gasLimit: 300000n })
+    const tx = await predC.settle(Number(slot), { gasLimit: 1000000n })
     toast('info','结算交易已发送','等待上链确认...')
     const receipt = await tx.wait()
     if(receipt.status === 0){
@@ -1098,7 +1098,7 @@ async function claimReward(slot, ridStr, btn){
 
 // ─────────────────────────────────────────────
 //  INIT
-// ─────────────────────────────────────────────
+// ─���───────────────────────────────────────────
 startPoll()
 </script>
 </body>
