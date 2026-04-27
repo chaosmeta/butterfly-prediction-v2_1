@@ -4,7 +4,7 @@ export const TOKEN_ADDRESS       = '0x7ba7e046c9d062839611d4ca17909a2097567777'
 
 // ─── 网络 ──────────────────────────────────────────────────────────
 export const BSC_CHAIN_ID = 56
-export const BSC_RPC      = 'https://bsc-dataseed1.binance.org'
+export const BSC_RPC      = 'https://shy-proportionate-butterfly.bsc.quiknode.pro/f99481698b34b4bd221c635cfccd4d06f2c26068/'
 export const BSC_CHAIN_CONFIG = {
   chainId:           `0x${BSC_CHAIN_ID.toString(16)}`,
   chainName:         'BNB Smart Chain',

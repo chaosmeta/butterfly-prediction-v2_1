@@ -4,10 +4,10 @@ import { PREDICTION_ABI, TOKEN_ABI } from './abi'
 
 // ─── 只读 provider（公共 RPC，带 fallback）───────────────────────
 const BSC_RPC_LIST = [
-  BSC_RPC,
-  'https://bsc-dataseed2.binance.org',
-  'https://bsc-dataseed3.binance.org',
-  'https://bsc-dataseed4.binance.org',
+  BSC_RPC,                                      // QuikNode 专用节点（首选）
+  'https://bsc-dataseed1.binance.org',           // 公共备用 1
+  'https://bsc-dataseed2.binance.org',           // 公共备用 2
+  'https://bsc-dataseed3.binance.org',           // 公共备用 3
 ]
 
 let _readProvider: ethers.JsonRpcProvider | null = null
