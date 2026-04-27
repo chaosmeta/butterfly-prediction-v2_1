@@ -742,15 +742,19 @@ async function fetchRound(){
     const downShares = raw[6]
     const bnbPool    = raw[7]
     const spl        = raw[8]
+    const secondsLeft = raw[9]
     bettingOpen      = raw[10]
     sharePriceLocked = spl > 0n ? spl : SHARE_PRICE_DEFAULT
     notStarted       = roundId === 0n && endTime === 0n
+    // roundEnded: 合约确认时间已到（secondsLeft==0），才能调 settle()
+    const roundEnded = !notStarted && secondsLeft === 0n && !bettingOpen
 
     // Round panel
     document.getElementById('round-id').textContent = notStarted ? '等待首笔下注' : `轮次 #${roundId}`
     document.getElementById('slot-label').textContent = SLOT_LABELS[currentSlot]+' 档'
 
     // Status badge + settle button
+    // 三种状态：投注中 | 投注截止(等待到期) | 已到期可结算
     const badge = document.getElementById('status-badge')
     const settleBtn = document.getElementById('settle-btn')
     if(notStarted){
@@ -759,9 +763,13 @@ async function fetchRound(){
     } else if(bettingOpen){
       badge.className='badge badge-open'; badge.textContent='投注中'
       settleBtn.classList.add('hidden')
+    } else if(!roundEnded){
+      // bettingOpen=false 但 secondsLeft>0：投注窗口已关但轮次未到期，不能 settle
+      badge.className='badge badge-closed'; badge.textContent='投注截止'
+      settleBtn.classList.add('hidden')
     } else {
-      badge.className='badge badge-closed'; badge.textContent='已关闭'
-      // 本轮已关闭未 settled，显示触发结算按钮（任何人都可以调 settle()）
+      // secondsLeft==0 且未 settled：可以调 settle()
+      badge.className='badge badge-closed'; badge.textContent='等待结算'
       settleBtn.classList.remove('hidden')
     }
 
@@ -1021,7 +1029,11 @@ async function triggerSettle(){
   } catch(e){
     const msg = (e.reason ?? e.shortMessage ?? e.message ?? '')
     const low = msg.toLowerCase()
-    if(!low.includes('reject') && !low.includes('denied')){
+    if(low.includes('reject') || low.includes('denied')){
+      // 用户拒绝，不提示
+    } else if(low.includes('not yet')){
+      toast('warning','尚未到结算时间','链上倒计时还未归零，稍后再试')
+    } else {
       toast('error','结算失败', msg.slice(0,120))
     }
     btn.disabled = false
@@ -1040,13 +1052,17 @@ async function triggerSettleForRecord(slot, btn){
     const tx = await predC.settle(slot)
     toast('info','结算交易已发送','等待上链...')
     await tx.wait()
-    toast('success','结算完成，请刷新记录')
+    toast('success','结算完成')
     fetchRound()
     loadMyBets()
   } catch(e){
     const msg = (e.reason ?? e.shortMessage ?? e.message ?? '')
     const low = msg.toLowerCase()
-    if(!low.includes('reject') && !low.includes('denied')){
+    if(low.includes('reject') || low.includes('denied')){
+      // 用户拒绝，不提示
+    } else if(low.includes('not yet')){
+      toast('warning','尚未到结算时间','链上时间还未到期，请等待倒计时归零后再试')
+    } else {
       toast('error','结算失败', msg.slice(0,120))
     }
     btn.disabled = false
