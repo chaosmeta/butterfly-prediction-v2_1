@@ -420,7 +420,7 @@ async function fetchBnbPrice(){
 }
 
 // 将合约内部价格（BNB/BFLY，1e18精度）转换为 USDT/BFLY 并格式化
-// 将浮点数���为十进制字符串，永远不使用科学计数法
+// 将浮点数����为十进制字符串，永远不使用科学计数法
 function toDecimalStr(n, maxSig){
   if(n === 0) return '0'
   // toFixed 位数：取有效数字位置 + maxSig
@@ -798,15 +798,24 @@ async function fetchRound(){
       document.getElementById('progress-fill').style.width = '0%'
     } else {
       const end = Number(endTime), start = Number(startTime), dur = end - start
+      let didExpire = false
       function tick(){
-        const left=Math.max(0,end-Math.floor(Date.now()/1000))
-        document.getElementById('countdown-display').textContent=fmtCountdown(left)
-        document.getElementById('countdown-sub').textContent=left===0?'已结算':'距离结算'
-        const prog=dur>0?Math.min(1,(Date.now()/1000-start)/dur):0
-        document.getElementById('progress-fill').style.width=(prog*100).toFixed(1)+'%'
+        const now = Math.floor(Date.now()/1000)
+        const left = Math.max(0, end - now)
+        document.getElementById('countdown-display').textContent = fmtCountdown(left)
+        document.getElementById('countdown-sub').textContent = left === 0 ? '等待结算' : '距离结算'
+        const prog = dur > 0 ? Math.min(1,(Date.now()/1000-start)/dur) : 0
+        document.getElementById('progress-fill').style.width = (prog*100).toFixed(1)+'%'
+        // 倒计时归零时立即刷新链上数据（新轮可能已由他人下注自动开启）
+        if(left === 0 && !didExpire){
+          didExpire = true
+          setTimeout(fetchRound, 1000)
+          setTimeout(fetchRound, 4000)
+          setTimeout(fetchRound, 8000)
+        }
       }
       tick()
-      countdownTimer=setInterval(tick,1000)
+      countdownTimer = setInterval(tick, 1000)
     }
 
     // Update cost display with latest price
@@ -1020,7 +1029,8 @@ async function triggerSettle(){
   btn.innerHTML = '<span class="spinner"></span> 结算中'
   try{
     const predC = getSignerPred()
-    const tx = await predC.settle(Number(currentSlot), { gasLimit: 1000000n })
+    // 不手动设 gasLimit，让钱包自动 estimateGas（settle 内含 DEX swap，gas 不固定）
+    const tx = await predC.settle(Number(currentSlot))
     toast('info','结算交易已发送','等待上链确认...')
     const receipt = await tx.wait()
     if(receipt.status === 0){
@@ -1069,7 +1079,7 @@ async function triggerSettleForRecord(slot, btn){
   btn.innerHTML = '<span class="spinner"></span> 结算中'
   try{
     const predC = getSignerPred()
-    const tx = await predC.settle(Number(slot), { gasLimit: 1000000n })
+    const tx = await predC.settle(Number(slot))
     toast('info','结算交易已发送','等待上链确认...')
     const receipt = await tx.wait()
     if(receipt.status === 0){
