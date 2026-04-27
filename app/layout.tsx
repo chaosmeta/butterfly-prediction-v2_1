@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
+import { Providers } from './providers'
 import './globals.css'
 
 const inter = Inter({
@@ -11,7 +12,6 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: '蝴蝶预测 | BNB 链价格涨跌竞猜',
   description: '基于 BNB Chain 的去中心化价格涨跌预测协议，支持 20 分钟 / 1 小时 / 24 小时三档投注',
-  keywords: ['BNB', '预测', 'DeFi', '链上', '涨跌', 'butterfly'],
 }
 
 export const viewport: Viewport = {
@@ -22,9 +22,9 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="zh-CN" className="bg-background">
+    <html lang="zh-CN">
       <body className={`${inter.variable} font-sans antialiased`}>
-        {children}
+        <Providers>{children}</Providers>
       </body>
     </html>
   )
