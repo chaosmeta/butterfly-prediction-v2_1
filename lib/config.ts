@@ -25,4 +25,5 @@ export type SlotId = 0 | 1 | 2
 // ─── 份数配置 ──────────────────────────────────────────────────────
 export const SHARES_MIN  = 1
 export const SHARES_MAX  = 100
-export const SHARE_PRICE = 10   // 每份代币数量（UI 展示用，合约以 sharePriceLocked 为准）
+// 每份代币数量（UI 展示用，合约以 sharePriceLocked 为准；未启动时用此兜底）
+export const SHARE_PRICE_TOKENS = 500_000   // 50 万枚 BFLY / 份

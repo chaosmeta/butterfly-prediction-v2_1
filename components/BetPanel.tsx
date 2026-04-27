@@ -4,10 +4,9 @@ import { useState, useCallback } from 'react'
 import { ethers } from 'ethers'
 import type { RoundData } from '@/hooks/useRound'
 import type { SlotId } from '@/lib/config'
-import { SHARES_MIN, SHARES_MAX } from '@/lib/config'
+import { SHARES_MIN, SHARES_MAX, SHARE_PRICE_TOKENS, PREDICTION_ADDRESS } from '@/lib/config'
 import { formatToken, calcOdds, calcEstReturn } from '@/lib/format'
 import { getSignerToken, getSignerPrediction } from '@/lib/web3'
-import { PREDICTION_ADDRESS } from '@/lib/config'
 import { cn } from '@/lib/utils'
 import type { ToastData } from './Toast'
 
@@ -53,11 +52,24 @@ export default function BetPanel({ slot, round, signer, address, onToast, onRefr
       const tokenContract = getSignerToken(signer)
       const predContract  = getSignerPrediction(signer)
       const sharePriceLocked: bigint = round.sharePriceLocked
-      // 如果未启动，用合约默认份价（10 BFLY）
+      // 未启动时用每份 50 万 BFLY 兜底
       const pricePerShare = sharePriceLocked > 0n
         ? sharePriceLocked
-        : ethers.parseEther('10')
+        : ethers.parseEther(String(SHARE_PRICE_TOKENS))
       const totalCost = pricePerShare * BigInt(shares)
+
+      // 0. 检查余额是否充足，提前给出明确错误
+      const balance: bigint = await tokenContract.balanceOf(address)
+      if (balance < totalCost) {
+        const need = ethers.formatEther(totalCost)
+        const have = ethers.formatEther(balance)
+        onToast({
+          type: 'error',
+          title: '余额不足',
+          message: `需要 ${Number(need).toLocaleString('zh-CN')} BFLY，钱包余额仅 ${Number(have).toLocaleString('zh-CN')} BFLY`,
+        })
+        return
+      }
 
       // 1. 检查 allowance
       const allowance: bigint = await tokenContract.allowance(address, PREDICTION_ADDRESS)
@@ -133,10 +145,19 @@ export default function BetPanel({ slot, round, signer, address, onToast, onRefr
 
       {/* 份数调整 */}
       <div>
-        <label className="text-xs text-muted mb-2 block">份数</label>
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-xs text-muted">份数</label>
+          {/* 右侧实时显示所需代币数 */}
+          <span className="text-xs text-primary font-medium">
+            需 {(shares * SHARE_PRICE_TOKENS).toLocaleString('zh-CN')} BFLY
+          </span>
+        </div>
         <div className="flex items-center gap-3">
           <button className="stepper-btn" onClick={() => adjustShares(-1)} disabled={isBusy || shares <= SHARES_MIN} aria-label="减少">−</button>
-          <span className="flex-1 text-center font-bold text-xl text-foreground">{shares}</span>
+          <div className="flex-1 text-center">
+            <span className="font-bold text-xl text-foreground">{shares}</span>
+            <div className="text-xs text-muted mt-0.5">份</div>
+          </div>
           <button className="stepper-btn" onClick={() => adjustShares(1)}  disabled={isBusy || shares >= SHARES_MAX} aria-label="增加">+</button>
         </div>
         <div className="flex gap-2 mt-2">
@@ -158,25 +179,39 @@ export default function BetPanel({ slot, round, signer, address, onToast, onRefr
         </div>
       </div>
 
-      {/* 费用预估 */}
-      {round && round.sharePriceLocked > 0n && (
+      {/* 费用预估：sharePriceLocked > 0 用链上价，否则用兜底价展示 */}
+      {round && (
         <div className="glass-2 rounded-lg p-3 space-y-1.5 text-xs">
           <div className="flex justify-between">
-            <span className="text-muted">花费</span>
+            <span className="text-muted">每份价格</span>
             <span className="text-foreground font-medium">
-              {formatToken(round.sharePriceLocked * BigInt(shares))} BFLY
+              {round.sharePriceLocked > 0n
+                ? `${formatToken(round.sharePriceLocked)} BFLY`
+                : `${SHARE_PRICE_TOKENS.toLocaleString('zh-CN')} BFLY`}
             </span>
           </div>
           <div className="flex justify-between">
-            <span className="text-muted">赔率（预估）</span>
-            <span className="text-foreground font-medium">{oddsStr}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted">预计收益</span>
-            <span className={cn('font-medium', direction ? 'text-up' : 'text-muted')}>
-              {estReturn} BFLY
+            <span className="text-muted">合计花费</span>
+            <span className="text-foreground font-medium">
+              {round.sharePriceLocked > 0n
+                ? `${formatToken(round.sharePriceLocked * BigInt(shares))} BFLY`
+                : `${(shares * SHARE_PRICE_TOKENS).toLocaleString('zh-CN')} BFLY`}
             </span>
           </div>
+          {direction && (
+            <>
+              <div className="flex justify-between">
+                <span className="text-muted">赔率（预估）</span>
+                <span className="text-foreground font-medium">{oddsStr}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted">预计收益</span>
+                <span className={cn('font-medium', 'text-up')}>
+                  {estReturn} BFLY
+                </span>
+              </div>
+            </>
+          )}
         </div>
       )}
 
