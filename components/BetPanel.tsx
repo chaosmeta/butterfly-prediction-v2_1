@@ -26,9 +26,11 @@ export default function BetPanel({ slot, round, signer, address, onToast, onRefr
   const [shares, setShares]       = useState(1)
   const [step, setStep]           = useState<'idle' | 'approving' | 'betting'>('idle')
 
-  const isBusy   = step !== 'idle'
-  const notStarted = round?.notStarted ?? false
-  const canBet   = !!signer && !!address && (notStarted || (!!round?.bettingOpen))
+  const isBusy     = step !== 'idle'
+  // notStarted：round 为 null（加载中/失败）或 roundId=0 且 endTime=0
+  const notStarted = !round || round.notStarted
+  // 已连接钱包时允许操作：未启动（第一笔下注）或投注窗口开放中
+  const canBet     = !!signer && !!address && (notStarted || !!round?.bettingOpen)
 
   // 预计费用
   const upShares   = round ? Number(round.totalUpShares)   : 0
@@ -45,13 +47,13 @@ export default function BetPanel({ slot, round, signer, address, onToast, onRefr
   }
 
   const handleBet = useCallback(async () => {
-    if (!signer || !address || !direction || !round) return
+    if (!signer || !address || !direction) return
 
     try {
       const tokenContract = getSignerToken(signer)
       const predContract  = getSignerPrediction(signer)
-      const sharePriceLocked: bigint = round.sharePriceLocked
-      // 未启动时用每份 50 万 BFLY 兜底
+      // round 未加载时（notStarted）用兜底价；已启动时用链上 sharePriceLocked
+      const sharePriceLocked: bigint = round?.sharePriceLocked ?? 0n
       const pricePerShare = sharePriceLocked > 0n
         ? sharePriceLocked
         : ethers.parseEther(String(SHARE_PRICE_TOKENS))
@@ -103,16 +105,18 @@ export default function BetPanel({ slot, round, signer, address, onToast, onRefr
   }, [signer, address, direction, round, shares, slot, onToast, onRefresh])
 
   const btnLabel = () => {
-    if (!address) return '请连接钱包'
+    if (!address)             return '请连接钱包'
     if (step === 'approving') return '授权中…'
     if (step === 'betting')   return '下注中…'
-    if (notStarted && direction) return `首笔下注 · 启动第一轮 ${shares} 份 ${direction === 'up' ? '涨' : '跌'}`
-    if (!direction)           return '请选择涨/跌'
-    if (!round?.bettingOpen && !notStarted) return '本轮已关闭'
+    if (!direction)           return notStarted ? '选方向以启动第一轮' : '请选择涨/跌'
+    if (notStarted)           return `首笔下注 · 启动第一轮 ${shares} 份 ${direction === 'up' ? '涨' : '跌'}`
+    if (!round?.bettingOpen)  return '本轮已关闭'
     return `确认下注 ${shares} 份 ${direction === 'up' ? '涨' : '跌'}`
   }
 
-  const btnDisabled = isBusy || !address || !direction || (!canBet && !notStarted)
+  // 仅以下情况禁用按钮：
+  // 1. 处理中  2. 未连钱包  3. 已选方向但不能下注（且已启动、投注窗关闭）
+  const btnDisabled = isBusy || !address || (!direction && !notStarted) || (!canBet && !!direction)
 
   return (
     <div className="glass p-5 sm:p-6 w-full space-y-5">
