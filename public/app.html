@@ -1043,7 +1043,37 @@ async function triggerSettle(retryCount){
 
   try{
     const predC = getSignerPred()
-    const tx = await predC.settle(currentSlot)
+    const slot = Number(currentSlot)
+
+    // 先估算 gas，失败说明合约会 revert，提前捕获错误原因
+    let gasEstimate
+    try{
+      gasEstimate = await predC.settle.estimateGas(slot)
+      console.log('[v0] settle gas estimate:', gasEstimate.toString())
+    } catch(estimateErr){
+      const errMsg = estimateErr.reason ?? estimateErr.shortMessage ?? estimateErr.message ?? ''
+      console.log('[v0] gas estimate 失败:', errMsg)
+      const low = errMsg.toLowerCase()
+      if(low.includes('not yet')){
+        if(retryCount < 6){
+          const wait = retryCount + 1
+          btn.textContent = `等待链上到期 (${wait}/6)...`
+          setTimeout(() => triggerSettle(retryCount + 1), 5000)
+        } else {
+          toast('error','结算失败','链上时间未到，请稍后再试')
+          btn.disabled = false; btn.textContent = '触发结算'
+        }
+      } else if(low.includes('reject') || low.includes('denied')){
+        btn.disabled = false; btn.textContent = '触发结算'
+      } else {
+        toast('error','结算预检失败', errMsg.slice(0,200))
+        btn.disabled = false; btn.textContent = '触发结算'
+      }
+      return
+    }
+
+    // gas 估算通过，正式发交易
+    const tx = await predC.settle(slot, { gasLimit: gasEstimate * 130n / 100n })
     toast('info','结算交易已发送','等待上链...')
     await tx.wait()
     console.log('[v0] settle 成功')
@@ -1053,16 +1083,12 @@ async function triggerSettle(retryCount){
     if(address) loadMyBets()
   } catch(e){
     const msg = (e.reason ?? e.shortMessage ?? e.message ?? '')
+    console.log('[v0] settle 发交易失败:', msg)
     const low = msg.toLowerCase()
     if(low.includes('reject') || low.includes('denied')){
       btn.disabled = false
       btn.textContent = '触发结算'
-    } else if(low.includes('not yet') && retryCount < 6){
-      const wait = retryCount + 1
-      btn.textContent = `等待链上到期 (${wait}/6)...`
-      setTimeout(() => triggerSettle(retryCount + 1), 5000)
     } else {
-      console.log('[v0] settle 失败:', msg)
       toast('error','结算失败', msg.slice(0,200))
       btn.disabled = false
       btn.textContent = '触发结算'
@@ -1070,7 +1096,7 @@ async function triggerSettle(retryCount){
   }
 }
 
-// 记录列表里的"触发结算"按钮，自动重试最多 6 次（每次等 5 秒）
+// 记录列表里的"触发结算"按钮
 async function triggerSettleForRecord(slot, btn, retryCount){
   retryCount = retryCount ?? 0
   if(!signer){ toast('error','请先连接钱包'); return }
@@ -1078,7 +1104,29 @@ async function triggerSettleForRecord(slot, btn, retryCount){
   if(retryCount === 0) btn.innerHTML = '<span class="spinner"></span> 结算中'
   try{
     const predC = getSignerPred()
-    const tx = await predC.settle(slot)
+    const slotNum = Number(slot)
+
+    // 先 estimateGas 预检，捕获 revert 原因
+    let gasEstimate
+    try{
+      gasEstimate = await predC.settle.estimateGas(slotNum)
+    } catch(estimateErr){
+      const errMsg = estimateErr.reason ?? estimateErr.shortMessage ?? estimateErr.message ?? ''
+      const low = errMsg.toLowerCase()
+      if(low.includes('not yet') && retryCount < 6){
+        const wait = retryCount + 1
+        btn.textContent = `等待链上到期 (${wait}/6)...`
+        setTimeout(() => triggerSettleForRecord(slot, btn, retryCount + 1), 5000)
+      } else if(!low.includes('reject') && !low.includes('denied')){
+        toast('error','结算预检失败', errMsg.slice(0,200))
+        btn.disabled = false; btn.textContent = '触发结算'
+      } else {
+        btn.disabled = false; btn.textContent = '触发结算'
+      }
+      return
+    }
+
+    const tx = await predC.settle(slotNum, { gasLimit: gasEstimate * 130n / 100n })
     toast('info','结算交易已发送','等待上链...')
     await tx.wait()
     toast('success','结算完成')
@@ -1087,18 +1135,11 @@ async function triggerSettleForRecord(slot, btn, retryCount){
   } catch(e){
     const msg = (e.reason ?? e.shortMessage ?? e.message ?? '')
     const low = msg.toLowerCase()
-    if(low.includes('reject') || low.includes('denied')){
-      btn.disabled = false
-      btn.textContent = '触发结算'
-    } else if(low.includes('not yet') && retryCount < 6){
-      const wait = retryCount + 1
-      btn.textContent = `等待链上到期 (${wait}/6)...`
-      setTimeout(() => triggerSettleForRecord(slot, btn, retryCount + 1), 5000)
-    } else {
-      toast('error','结算失败', msg.slice(0,120))
-      btn.disabled = false
-      btn.textContent = '触发结算'
+    if(!low.includes('reject') && !low.includes('denied')){
+      toast('error','结算失败', msg.slice(0,200))
     }
+    btn.disabled = false
+    btn.textContent = '触发结算'
   }
 }
 
