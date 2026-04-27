@@ -3,181 +3,230 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import {
-  useAccount, useReadContract, useWriteContract,
-  useWaitForTransactionReceipt, usePublicClient,
+  useAccount,
+  useReadContract,
+  useWriteContract,
+  useWaitForTransactionReceipt,
+  usePublicClient,
 } from 'wagmi'
 import { formatUnits, maxUint256 } from 'viem'
 import {
-  PREDICTION_ADDRESS, TOKEN_ADDRESS,
-  PREDICTION_ABI, TOKEN_ABI,
-  SLOTS, MAX_SHARES, MIN_SHARES, SHARE_PRICE_DEFAULT,
+  PREDICTION_ADDRESS,
+  TOKEN_ADDRESS,
+  PREDICTION_ABI,
+  TOKEN_ABI,
+  SLOTS,
+  MAX_SHARES,
+  MIN_SHARES,
+  SHARE_PRICE_DEFAULT,
 } from '@/lib/contracts'
 import { bsc } from '@/lib/wagmi'
 
-// ─── Types ────────────────────────────────────────────────────────────
+// ─── Types ─────────────────────────────────────────────────────────────
 type SlotId = 0 | 1 | 2
 type Direction = 'up' | 'down'
-type Step = 'idle' | 'approving' | 'betting'
+type TxStep = 'idle' | 'approving' | 'waiting_approve' | 'betting' | 'waiting_bet'
 
-interface Toast {
+interface ToastItem {
   id: number
   type: 'info' | 'success' | 'error'
   title: string
-  message?: string
+  msg?: string
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────
-function fmtToken(wei: bigint, dec = 18): string {
-  const n = parseFloat(formatUnits(wei, dec))
+// ─── Helpers ────────────────────────────────────────────────────────────
+let _toastId = 0
+
+function fmtBfly(wei: bigint, decimals = 18): string {
+  const n = parseFloat(formatUnits(wei, decimals))
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + 'M'
   if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K'
   return n.toLocaleString('zh-CN', { maximumFractionDigits: 2 })
 }
+
 function fmtBnb(wei: bigint): string {
   return parseFloat(formatUnits(wei, 18)).toFixed(4) + ' BNB'
 }
-function fmtCountdown(secs: number): string {
-  if (secs <= 0) return '00:00'
-  const h = Math.floor(secs / 3600)
-  const m = Math.floor((secs % 3600) / 60)
-  const s = secs % 60
-  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-}
-let _tid = 0
 
-// ─── Main ─────────────────────────────────────────────────────────────
+function fmtCountdown(sec: number): string {
+  if (sec <= 0) return '00:00'
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  const s = sec % 60
+  if (h > 0) return `${h}:${pad(m)}:${pad(s)}`
+  return `${pad(m)}:${pad(s)}`
+}
+
+function pad(n: number) { return String(n).padStart(2, '0') }
+
+function errMsg(e: unknown): string {
+  const err = e as { shortMessage?: string; message?: string }
+  return (err.shortMessage ?? err.message ?? '未知错误').slice(0, 140)
+}
+
+function isUserReject(e: unknown): boolean {
+  const err = e as { code?: string; message?: string }
+  return (
+    err.code === 'ACTION_REJECTED' ||
+    err.code === '4001' ||
+    !!(err.message?.toLowerCase().includes('user rejected')) ||
+    !!(err.message?.toLowerCase().includes('user denied'))
+  )
+}
+
+// ─── Main Component ─────────────────────────────────────────────────────
 export default function ButterflyApp() {
   const { address, isConnected, chain } = useAccount()
   const publicClient = usePublicClient()
   const { writeContractAsync } = useWriteContract()
 
-  const [slot, setSlot]         = useState<SlotId>(0)
-  const [direction, setDir]     = useState<Direction | null>(null)
-  const [shares, setShares]     = useState(1)
-  const [step, setStep]         = useState<Step>('idle')
-  const [toasts, setToasts]     = useState<Toast[]>([])
-  const [countdown, setCountdown] = useState(0)
+  const [slot, setSlot]       = useState<SlotId>(0)
+  const [dir, setDir]         = useState<Direction | null>(null)
+  const [shares, setShares]   = useState(1)
+  const [step, setStep]       = useState<TxStep>('idle')
   const [approveTx, setApproveTx] = useState<`0x${string}` | undefined>()
   const [betTx, setBetTx]         = useState<`0x${string}` | undefined>()
+  const [toasts, setToasts]   = useState<ToastItem[]>([])
+  const [secs, setSecs]       = useState(0)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const wrongChain = isConnected && chain?.id !== bsc.id
 
-  // ─── Toast ──────────────────────────────────────────────────────
-  const toast = useCallback((type: Toast['type'], title: string, message?: string) => {
-    const id = ++_tid
-    setToasts(p => [...p, { id, type, title, message }])
-    setTimeout(() => setToasts(p => p.filter(x => x.id !== id)), 5000)
+  // ── Toast ────────────────────────────────────────────────────────
+  const addToast = useCallback((type: ToastItem['type'], title: string, msg?: string) => {
+    const id = ++_toastId
+    setToasts(p => [...p.slice(-4), { id, type, title, msg }])
+    setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 5000)
   }, [])
 
-  // ─── Round data ──────────────────────────────────────────────────
-  const { data: raw, refetch: refetchRound } = useReadContract({
+  // ── Read: getCurrentRound ────────────────────────────────────────
+  const { data: roundData, refetch: refetchRound } = useReadContract({
     address: PREDICTION_ADDRESS,
     abi: PREDICTION_ABI,
     functionName: 'getCurrentRound',
     args: [slot],
     chainId: bsc.id,
-    query: { refetchInterval: 10_000 },
+    query: { refetchInterval: 10_000, staleTime: 5_000 },
   })
 
-  // raw: [roundId, startTime, endTime, openPrice, currentPrice,
-  //       totalUpShares, totalDownShares, bnbPool, sharePriceLocked, secondsLeft, bettingOpen]
-  const roundId          = raw?.[0] ?? 0n
-  const endTime          = raw?.[2] ?? 0n
-  const openPrice        = raw?.[3] ?? 0n
-  const currentPrice     = raw?.[4] ?? 0n
-  const totalUpShares    = raw?.[5] ?? 0n
-  const totalDownShares  = raw?.[6] ?? 0n
-  const bnbPool          = raw?.[7] ?? 0n
-  const sharePriceLocked = raw?.[8] && raw[8] > 0n ? raw[8] : SHARE_PRICE_DEFAULT
-  const secondsLeft      = raw?.[9] ?? 0n
-  const bettingOpen      = raw?.[10] ?? false
-  const notStarted       = !raw || (roundId === 0n && endTime === 0n)
+  // Destructure the 11-field tuple by index
+  const roundId          = roundData ? roundData[0] : 0n
+  const endTime          = roundData ? roundData[2] : 0n
+  const openPrice        = roundData ? roundData[3] : 0n
+  const currentPrice     = roundData ? roundData[4] : 0n
+  const totalUpShares    = roundData ? roundData[5] : 0n
+  const totalDownShares  = roundData ? roundData[6] : 0n
+  const bnbPool          = roundData ? roundData[7] : 0n
+  const sharePriceLocked = (roundData && roundData[8] > 0n) ? roundData[8] : SHARE_PRICE_DEFAULT
+  const bettingOpen      = roundData ? roundData[10] : false
+  const notStarted       = !roundData || (roundId === 0n && endTime === 0n)
 
-  // ─── Countdown ──────────────────────────────────────────────────
+  // ── Countdown timer ──────────────────────────────────────────────
   useEffect(() => {
     if (timerRef.current) clearInterval(timerRef.current)
-    if (notStarted) { setCountdown(0); return }
+    if (notStarted) { setSecs(0); return }
     const end = Number(endTime)
-    const update = () => setCountdown(Math.max(0, end - Math.floor(Date.now() / 1000)))
-    update()
-    timerRef.current = setInterval(update, 1000)
+    const tick = () => setSecs(Math.max(0, end - Math.floor(Date.now() / 1000)))
+    tick()
+    timerRef.current = setInterval(tick, 1000)
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
   }, [endTime, notStarted])
 
-  // ─── Token info ──────────────────────────────────────────────────
-  const { data: balance } = useReadContract({
+  // ── Read: token balance ──────────────────────────────────────────
+  const { data: balance, refetch: refetchBalance } = useReadContract({
     address: TOKEN_ADDRESS,
     abi: TOKEN_ABI,
     functionName: 'balanceOf',
     args: address ? [address] : undefined,
+    chainId: bsc.id,
     query: { enabled: !!address, refetchInterval: 15_000 },
   })
+
+  // ── Read: token decimals ─────────────────────────────────────────
   const { data: decimalsRaw } = useReadContract({
     address: TOKEN_ADDRESS,
     abi: TOKEN_ABI,
     functionName: 'decimals',
+    chainId: bsc.id,
   })
   const decimals = Number(decimalsRaw ?? 18)
+
   const totalCost = sharePriceLocked * BigInt(shares)
 
-  // ─── Wait for approve tx ─────────────────────────────────────────
-  const { isSuccess: approveOk } = useWaitForTransactionReceipt({
+  // ── Wait: approve tx ─────────────────────────────────────────────
+  const { isSuccess: approveOk, isError: approveErr } = useWaitForTransactionReceipt({
     hash: approveTx,
+    chainId: bsc.id,
     query: { enabled: !!approveTx },
   })
 
-  // ─── Wait for bet tx ─────────────────────────────────────────────
-  const { isSuccess: betOk } = useWaitForTransactionReceipt({
+  // ── Wait: bet tx ─────────────────────────────────────────────────
+  const { isSuccess: betOk, isError: betErr } = useWaitForTransactionReceipt({
     hash: betTx,
+    chainId: bsc.id,
     query: { enabled: !!betTx },
   })
 
-  // When approve confirmed → send bet
+  // ── doPlaceBet (called after approve confirmed or if already approved) ──
   const doPlaceBet = useCallback(async () => {
-    if (!address || !direction) return
+    if (!address || !dir) return
     try {
       setStep('betting')
-      toast('info', '步骤 2/2：确认下注', '请在钱包中确认交易…')
+      addToast('info', '步骤 2/2：确认下注', '请在钱包弹窗中确认下注交易')
       const hash = await writeContractAsync({
         address: PREDICTION_ADDRESS,
         abi: PREDICTION_ABI,
         functionName: 'placeBet',
-        args: [slot, direction === 'up', shares],
+        args: [slot, dir === 'up', shares],
         chainId: bsc.id,
       })
       setBetTx(hash)
-    } catch (e: unknown) {
-      const err = e as { shortMessage?: string; message?: string; code?: string }
-      if (!err.code?.includes('ACTION_REJECTED') && !err.message?.includes('User rejected')) {
-        toast('error', '下注失败', err.shortMessage ?? err.message?.slice(0, 120))
-      }
-      setStep('idle'); setBetTx(undefined)
+      setStep('waiting_bet')
+    } catch (e) {
+      if (!isUserReject(e)) addToast('error', '下注失败', errMsg(e))
+      setStep('idle')
+      setBetTx(undefined)
     }
-  }, [address, direction, slot, shares, writeContractAsync, toast])
+  }, [address, dir, slot, shares, writeContractAsync, addToast])
 
+  // approve confirmed → place bet
   useEffect(() => {
-    if (approveOk && step === 'approving') {
-      toast('success', '授权成功')
+    if (approveOk && step === 'waiting_approve') {
+      addToast('success', '授权成功', '即将发送下注交易')
+      setApproveTx(undefined)
       doPlaceBet()
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [approveOk])
-
-  useEffect(() => {
-    if (betOk && step === 'betting') {
-      toast('success', '下注成功！')
-      setStep('idle'); setDir(null); setBetTx(undefined); setApproveTx(undefined)
-      setTimeout(() => refetchRound(), 2000)
+    if (approveErr && step === 'waiting_approve') {
+      addToast('error', '授权交易失败')
+      setStep('idle')
+      setApproveTx(undefined)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [betOk])
+  }, [approveOk, approveErr])
 
-  // ─── Handle Bet button ───────────────────────────────────────────
+  // bet confirmed
+  useEffect(() => {
+    if (betOk && step === 'waiting_bet') {
+      addToast('success', '下注成功！', '已成功下注，等待轮次结算')
+      setStep('idle')
+      setDir(null)
+      setBetTx(undefined)
+      refetchRound()
+      refetchBalance()
+    }
+    if (betErr && step === 'waiting_bet') {
+      addToast('error', '下注交易失败')
+      setStep('idle')
+      setBetTx(undefined)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [betOk, betErr])
+
+  // ── Main bet handler ─────────────────────────────────────────────
   const handleBet = useCallback(async () => {
-    if (!address || !direction || !publicClient) return
+    if (!address || !dir || !publicClient) return
     try {
+      // Check current allowance first
       const allowance = await publicClient.readContract({
         address: TOKEN_ADDRESS,
         abi: TOKEN_ABI,
@@ -186,8 +235,9 @@ export default function ButterflyApp() {
       }) as bigint
 
       if (allowance < totalCost) {
+        // Need approval
         setStep('approving')
-        toast('info', '步骤 1/2：代币授权', '请在钱包中确认授权…')
+        addToast('info', '步骤 1/2：代币授权', '请在钱包弹窗中确认授权')
         const hash = await writeContractAsync({
           address: TOKEN_ADDRESS,
           abi: TOKEN_ABI,
@@ -196,66 +246,76 @@ export default function ButterflyApp() {
           chainId: bsc.id,
         })
         setApproveTx(hash)
+        setStep('waiting_approve')
       } else {
+        // Already approved, go straight to bet
         await doPlaceBet()
       }
-    } catch (e: unknown) {
-      const err = e as { shortMessage?: string; message?: string; code?: string }
-      if (!err.code?.includes('ACTION_REJECTED') && !err.message?.includes('User rejected')) {
-        toast('error', '操作失败', err.shortMessage ?? err.message?.slice(0, 120))
-      }
-      setStep('idle'); setApproveTx(undefined)
+    } catch (e) {
+      if (!isUserReject(e)) addToast('error', '操作失败', errMsg(e))
+      setStep('idle')
+      setApproveTx(undefined)
     }
-  }, [address, direction, publicClient, totalCost, writeContractAsync, doPlaceBet, toast])
+  }, [address, dir, publicClient, totalCost, writeContractAsync, doPlaceBet, addToast])
 
-  // ─── UI state ────────────────────────────────────────────────────
-  const isBusy   = step !== 'idle'
-  const canBet   = isConnected && !wrongChain && !isBusy && !!direction && (notStarted || bettingOpen)
+  // ── Derived UI state ─────────────────────────────────────────────
+  const isBusy = step !== 'idle'
+  const canBet = isConnected && !wrongChain && !isBusy && !!dir && (notStarted || bettingOpen)
+
   const totalShares = Number(totalUpShares) + Number(totalDownShares)
-  const upPct    = totalShares > 0 ? Math.round(Number(totalUpShares) / totalShares * 100) : 50
-  const downPct  = 100 - upPct
-  const duration = notStarted ? SLOTS[slot].duration : (Number(endTime) - Number(endTime - secondsLeft))
-  const progress = notStarted ? 0 : Math.max(0, Math.min(1, 1 - countdown / (duration || 1)))
+  const upPct   = totalShares > 0 ? Math.round(Number(totalUpShares) / totalShares * 100) : 50
+  const downPct = 100 - upPct
+
+  const slotDuration = SLOTS[slot].duration
+  const progress = notStarted ? 0 : Math.max(0, Math.min(1, 1 - secs / slotDuration))
 
   const btnLabel =
-    !isConnected       ? '请先连接钱包' :
-    wrongChain         ? '请切换到 BSC' :
-    step === 'approving' ? '授权中…' :
-    step === 'betting'   ? '下注中…' :
-    !direction           ? (notStarted ? '选择方向以启动第一轮' : '请选择涨 / 跌') :
-    !notStarted && !bettingOpen ? '本轮已关闭下注' :
-    notStarted
-      ? `首笔下注 · ${shares} 份 ${direction === 'up' ? '涨' : '跌'}`
-      : `确认下注 · ${shares} 份 ${direction === 'up' ? '涨' : '跌'}`
+    !isConnected          ? '请先连接钱包' :
+    wrongChain            ? '请切换到 BSC 网络' :
+    step === 'approving'  ? '等待授权签名…' :
+    step === 'waiting_approve' ? '等待授权上链…' :
+    step === 'betting'    ? '等待下注签名…' :
+    step === 'waiting_bet' ? '等待下注上链…' :
+    !dir                  ? (notStarted ? '选择方向后启动第一轮' : '请选择涨 / 跌') :
+    (!notStarted && !bettingOpen) ? '本轮已关闭下注' :
+    `${notStarted ? '首笔下注' : '确认下注'} · ${dir === 'up' ? '涨' : '跌'} ${shares} 份`
 
   return (
     <div className="relative min-h-screen" style={{ background: 'var(--color-bg)' }}>
-      <StarField />
+      <StarBg />
 
-      {/* Nav */}
-      <nav className="relative z-10 flex items-center justify-between px-5 py-4"
-        style={{ borderBottom: '1px solid var(--color-border)' }}>
-        <div className="flex items-center gap-2">
-          <span style={{ fontSize: '1.5rem' }}>🦋</span>
-          <span className="font-bold text-base" style={{ color: 'var(--color-fg)' }}>蝴蝶预测</span>
+      {/* ── Navbar ── */}
+      <nav
+        className="relative z-10 flex items-center justify-between px-6 py-4"
+        style={{ borderBottom: '1px solid var(--color-border)' }}
+      >
+        <div className="flex items-center gap-3">
+          <img src="/assets/logo.webp" alt="蝴蝶预测" className="w-8 h-8 rounded-full" />
+          <span className="font-bold text-lg tracking-tight" style={{ color: 'var(--color-fg)' }}>
+            蝴蝶预测
+          </span>
         </div>
         <ConnectButton chainStatus="icon" showBalance={false} accountStatus="avatar" />
       </nav>
 
       {wrongChain && (
-        <div className="relative z-10 text-center py-2 text-sm font-medium"
-          style={{ background: 'rgba(248,113,113,0.12)', color: 'var(--color-down)' }}>
-          请在钱包切换到 BNB Smart Chain
+        <div
+          className="relative z-10 text-center py-2 text-sm font-medium"
+          style={{ background: 'rgba(248,113,113,0.1)', color: 'var(--color-down)' }}
+        >
+          请在钱包中切换到 BNB Smart Chain（链 ID 56）
         </div>
       )}
 
       <main className="relative z-10 max-w-5xl mx-auto px-4 py-8 space-y-6">
 
-        {/* Slot tabs */}
-        <div className="flex justify-center gap-2">
+        {/* ── Slot Tabs ── */}
+        <div className="flex justify-center gap-2" role="tablist" aria-label="时间档位">
           {SLOTS.map((s, i) => (
             <button
               key={i}
+              role="tab"
+              aria-selected={slot === i}
               className={`slot-tab${slot === i ? ' active' : ''}`}
               onClick={() => { setSlot(i as SlotId); setDir(null) }}
             >
@@ -266,173 +326,256 @@ export default function ButterflyApp() {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
-          {/* Round Panel */}
-          <div className="glass p-5 space-y-4">
+          {/* ── Round Info ── */}
+          <section className="glass p-5 space-y-4" aria-label="当前轮次信息">
             <div className="flex items-center justify-between">
-              <h2 className="font-semibold" style={{ color: 'var(--color-fg)' }}>
-                {SLOTS[slot].label} · {notStarted ? '等待第一笔下注' : `轮次 #${roundId.toString()}`}
+              <h2 className="font-semibold text-base" style={{ color: 'var(--color-fg)' }}>
+                {SLOTS[slot].label}
+                {!notStarted && (
+                  <span className="ml-2 text-sm font-normal" style={{ color: 'var(--color-muted)' }}>
+                    #{roundId.toString()}
+                  </span>
+                )}
               </h2>
               {!notStarted && (
-                <span className="text-xs px-2 py-1 rounded-full" style={{
-                  background: bettingOpen ? 'rgba(52,211,153,0.15)' : 'rgba(248,113,113,0.15)',
-                  color: bettingOpen ? 'var(--color-up)' : 'var(--color-down)',
-                }}>
+                <span
+                  className="text-xs px-2.5 py-1 rounded-full font-medium"
+                  style={{
+                    background: bettingOpen ? 'rgba(52,211,153,0.12)' : 'rgba(248,113,113,0.12)',
+                    color: bettingOpen ? 'var(--color-up)' : 'var(--color-down)',
+                  }}
+                >
                   {bettingOpen ? '投注中' : '已关闭'}
                 </span>
               )}
             </div>
 
-            <div className="text-center py-2">
-              <div className="text-5xl font-mono font-bold" style={{ color: 'var(--color-primary)', letterSpacing: '-0.02em' }}>
-                {notStarted ? '--:--' : fmtCountdown(countdown)}
+            {/* Countdown */}
+            <div className="text-center py-3">
+              <div
+                className="text-5xl font-mono font-bold tabular-nums"
+                style={{ color: 'var(--color-primary)', letterSpacing: '-0.03em' }}
+              >
+                {notStarted ? '--:--' : fmtCountdown(secs)}
               </div>
-              <div className="text-xs mt-1" style={{ color: 'var(--color-muted)' }}>
-                {notStarted ? '首笔下注后开始计时' : '距离结算'}
-              </div>
+              <p className="text-xs mt-1.5" style={{ color: 'var(--color-muted)' }}>
+                {notStarted ? '首笔下注后自动开始计时' : '距离本轮结算'}
+              </p>
             </div>
 
-            <div className="progress-bar">
+            {/* Progress */}
+            <div className="progress-bar" role="progressbar" aria-valuenow={Math.round(progress * 100)} aria-valuemin={0} aria-valuemax={100}>
               <div className="progress-bar-fill" style={{ width: `${progress * 100}%` }} />
             </div>
 
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            {/* Stats grid */}
+            <div className="grid grid-cols-2 gap-2.5">
               {[
-                { label: '开盘价', value: openPrice > 0n ? fmtToken(openPrice) : '—' },
-                { label: '当前价', value: currentPrice > 0n ? fmtToken(currentPrice) : '—' },
-                { label: '奖池', value: fmtBnb(bnbPool) },
-                { label: '份价', value: `${fmtToken(sharePriceLocked, decimals)} BFLY` },
+                { label: '开盘价',  value: openPrice > 0n ? fmtBfly(openPrice) + ' BNB' : '—' },
+                { label: '当前价',  value: currentPrice > 0n ? fmtBfly(currentPrice) + ' BNB' : '—' },
+                { label: '奖池',    value: fmtBnb(bnbPool) },
+                { label: '份价',    value: fmtBfly(sharePriceLocked, decimals) + ' BFLY' },
               ].map(item => (
-                <div key={item.label} className="glass-2 p-3 rounded-lg">
-                  <div style={{ color: 'var(--color-muted)', fontSize: '0.75rem' }}>{item.label}</div>
-                  <div className="font-mono font-semibold mt-0.5" style={{ color: 'var(--color-fg)' }}>{item.value}</div>
+                <div key={item.label} className="glass-2 p-3 rounded-xl">
+                  <div className="text-xs mb-1" style={{ color: 'var(--color-muted)' }}>{item.label}</div>
+                  <div className="font-mono font-semibold text-sm" style={{ color: 'var(--color-fg)' }}>{item.value}</div>
                 </div>
               ))}
             </div>
 
+            {/* Up/Down ratio */}
             <div>
               <div className="flex justify-between text-xs mb-1.5">
-                <span style={{ color: 'var(--color-up)' }}>涨 {upPct}% · {totalUpShares.toString()} 份</span>
-                <span style={{ color: 'var(--color-down)' }}>跌 {downPct}% · {totalDownShares.toString()} 份</span>
+                <span style={{ color: 'var(--color-up)' }}>
+                  涨 {upPct}% &middot; {totalUpShares.toString()} 份
+                </span>
+                <span style={{ color: 'var(--color-down)' }}>
+                  跌 {downPct}% &middot; {totalDownShares.toString()} 份
+                </span>
               </div>
-              <div className="flex rounded-full overflow-hidden h-2">
-                <div style={{ width: `${upPct}%`, background: 'var(--color-up)', transition: 'width 0.5s' }} />
+              <div className="flex rounded-full overflow-hidden h-2.5">
+                <div style={{ width: `${upPct}%`, background: 'var(--color-up)', transition: 'width 0.6s ease' }} />
                 <div style={{ flex: 1, background: 'var(--color-down)' }} />
               </div>
             </div>
-          </div>
+          </section>
 
-          {/* Bet Panel */}
-          <div className="glass p-5 space-y-5">
+          {/* ── Bet Panel ── */}
+          <section className="glass p-5 space-y-5" aria-label="下注面板">
             <div className="flex items-center justify-between">
-              <h2 className="font-semibold" style={{ color: 'var(--color-fg)' }}>我要投注</h2>
+              <h2 className="font-semibold text-base" style={{ color: 'var(--color-fg)' }}>我要投注</h2>
               {isConnected && balance !== undefined && (
                 <span className="text-xs" style={{ color: 'var(--color-muted)' }}>
-                  余额 <span style={{ color: 'var(--color-fg)' }}>{fmtToken(balance as bigint, decimals)} BFLY</span>
+                  余额&nbsp;
+                  <span className="font-semibold" style={{ color: 'var(--color-fg)' }}>
+                    {fmtBfly(balance as bigint, decimals)} BFLY
+                  </span>
                 </span>
               )}
             </div>
 
-            {/* Direction */}
+            {/* Direction buttons */}
             <div className="grid grid-cols-2 gap-3">
-              {(['up', 'down'] as const).map(d => (
-                <button
-                  key={d}
-                  className={`${d === 'up' ? 'btn-up' : 'btn-down'} rounded-xl py-5 font-bold text-lg${direction === d ? ' active' : ''}`}
-                  onClick={() => setDir(d)}
-                  disabled={isBusy}
-                >
-                  {d === 'up' ? '▲ 涨' : '▼ 跌'}
-                </button>
-              ))}
+              <button
+                className={`btn-up rounded-xl py-6 font-bold text-xl${dir === 'up' ? ' active' : ''}`}
+                onClick={() => !isBusy && setDir('up')}
+                disabled={isBusy}
+                aria-pressed={dir === 'up'}
+              >
+                ▲ 涨
+              </button>
+              <button
+                className={`btn-down rounded-xl py-6 font-bold text-xl${dir === 'down' ? ' active' : ''}`}
+                onClick={() => !isBusy && setDir('down')}
+                disabled={isBusy}
+                aria-pressed={dir === 'down'}
+              >
+                ▼ 跌
+              </button>
             </div>
 
-            {/* Shares stepper */}
+            {/* Shares */}
             <div>
               <div className="flex justify-between items-center mb-2">
-                <span className="text-sm" style={{ color: 'var(--color-muted)' }}>份数 (1–{MAX_SHARES})</span>
+                <span className="text-sm" style={{ color: 'var(--color-muted)' }}>
+                  份数（1 ~ {MAX_SHARES}）
+                </span>
                 <span className="text-sm font-semibold" style={{ color: 'var(--color-primary)' }}>
-                  共 {fmtToken(totalCost, decimals)} BFLY
+                  {fmtBfly(totalCost, decimals)} BFLY
                 </span>
               </div>
-              <div className="flex items-center gap-3">
-                <button className="stepper-btn" onClick={() => setShares(s => Math.max(MIN_SHARES, s - 1))} disabled={isBusy || shares <= MIN_SHARES}>−</button>
+
+              <div className="flex items-center gap-4">
+                <button
+                  className="stepper-btn"
+                  onClick={() => setShares(s => Math.max(MIN_SHARES, s - 1))}
+                  disabled={isBusy || shares <= MIN_SHARES}
+                  aria-label="减少份数"
+                >
+                  −
+                </button>
                 <div className="flex-1 text-center">
-                  <span className="text-3xl font-bold" style={{ color: 'var(--color-fg)' }}>{shares}</span>
-                  <span className="text-sm ml-1" style={{ color: 'var(--color-muted)' }}>份</span>
+                  <span className="text-4xl font-bold tabular-nums" style={{ color: 'var(--color-fg)' }}>
+                    {shares}
+                  </span>
+                  <span className="text-sm ml-1.5" style={{ color: 'var(--color-muted)' }}>份</span>
                 </div>
-                <button className="stepper-btn" onClick={() => setShares(s => Math.min(MAX_SHARES, s + 1))} disabled={isBusy || shares >= MAX_SHARES}>+</button>
+                <button
+                  className="stepper-btn"
+                  onClick={() => setShares(s => Math.min(MAX_SHARES, s + 1))}
+                  disabled={isBusy || shares >= MAX_SHARES}
+                  aria-label="增加份数"
+                >
+                  +
+                </button>
               </div>
-              <div className="flex gap-1.5 mt-2">
+
+              {/* Quick select */}
+              <div className="flex gap-2 mt-3">
                 {[1, 5, 10, 20].map(n => (
-                  <button key={n} onClick={() => setShares(n)} disabled={isBusy}
-                    className="flex-1 py-1 text-xs rounded-md border transition-all"
+                  <button
+                    key={n}
+                    onClick={() => !isBusy && setShares(n)}
+                    disabled={isBusy}
+                    className="flex-1 py-1.5 text-xs rounded-lg border transition-all"
                     style={{
                       borderColor: shares === n ? 'var(--color-primary)' : 'var(--color-border)',
                       color: shares === n ? 'var(--color-primary)' : 'var(--color-muted)',
                       background: shares === n ? 'rgba(167,139,250,0.12)' : 'transparent',
-                    }}>
+                    }}
+                  >
                     {n}
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* Summary */}
-            {direction && (
-              <div className="glass-2 rounded-lg p-3 space-y-1 text-xs">
-                <div className="flex justify-between">
-                  <span style={{ color: 'var(--color-muted)' }}>代币花费</span>
-                  <span style={{ color: 'var(--color-fg)', fontWeight: 600 }}>{fmtToken(totalCost, decimals)} BFLY</span>
-                </div>
-                <div className="flex justify-between">
-                  <span style={{ color: 'var(--color-muted)' }}>方向</span>
-                  <span style={{ color: direction === 'up' ? 'var(--color-up)' : 'var(--color-down)', fontWeight: 600 }}>
-                    {direction === 'up' ? '押涨' : '押跌'}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span style={{ color: 'var(--color-muted)' }}>输了退款</span>
-                  <span style={{ color: 'var(--color-fg)' }}>代币全额退还</span>
-                </div>
+            {/* Summary box */}
+            {dir && (
+              <div className="glass-2 rounded-xl p-3 space-y-1.5 text-xs">
+                <Row label="代币花费" value={`${fmtBfly(totalCost, decimals)} BFLY`} />
+                <Row
+                  label="方向"
+                  value={dir === 'up' ? '押涨' : '押跌'}
+                  valueColor={dir === 'up' ? 'var(--color-up)' : 'var(--color-down)'}
+                />
+                <Row label="输了退款" value="代币全额退还" />
+                <Row label="赢了获得" value="按份额比例分配奖池 BNB" />
               </div>
             )}
 
-            <button className="btn-primary w-full" onClick={handleBet} disabled={!canBet}>
+            {/* Bet button */}
+            <button
+              className="btn-primary w-full py-4 text-base"
+              onClick={handleBet}
+              disabled={!canBet}
+            >
+              {isBusy && (
+                <span className="inline-block w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin mr-2 align-middle" />
+              )}
               {btnLabel}
             </button>
-          </div>
+
+            {/* Step indicator */}
+            {isBusy && (
+              <div className="flex items-center justify-center gap-6 text-xs" style={{ color: 'var(--color-muted)' }}>
+                <StepDot
+                  active={step === 'approving' || step === 'waiting_approve'}
+                  done={step === 'betting' || step === 'waiting_bet'}
+                  label="1. 授权"
+                />
+                <div style={{ flex: 1, height: 1, background: 'var(--color-border)' }} />
+                <StepDot
+                  active={step === 'betting' || step === 'waiting_bet'}
+                  done={false}
+                  label="2. 下注"
+                />
+              </div>
+            )}
+          </section>
         </div>
 
-        {/* My Bets */}
-        {isConnected && address && (
-          <MyBetsPanel address={address} currentSlot={slot} currentRoundId={roundId} />
+        {/* ── My Bets ── */}
+        {isConnected && !!address && (
+          <MyBets address={address} slot={slot} roundId={roundId} />
         )}
 
-        {/* How it works */}
-        <div className="glass p-5">
+        {/* ── How it works ── */}
+        <section className="glass p-5">
           <h2 className="font-semibold mb-4" style={{ color: 'var(--color-fg)' }}>玩法说明</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
             {[
-              { n: 1, t: '选档位', d: '三档：20分钟 / 1小时 / 24小时' },
-              { n: 2, t: '选方向', d: '押涨或押跌，1份 = 50万 BFLY' },
-              { n: 3, t: '授权下注', d: '钱包确认授权后再确认下注' },
-              { n: 4, t: '等结算', d: '赢得 BNB；输了代币原额退还' },
+              { step: '1', title: '选档位', desc: '20分钟 / 1小时 / 24小时，独立轮次' },
+              { step: '2', title: '押方向', desc: '选涨或跌，1份 = 50万 BFLY 代币' },
+              { step: '3', title: '授权下注', desc: '先在钱包授权代币，再确认下注' },
+              { step: '4', title: '结算领奖', desc: '赢得奖池 BNB；输了代币原额退还' },
             ].map(item => (
-              <div key={item.n} className="glass-2 p-3 rounded-lg">
-                <div className="font-medium mb-1" style={{ color: 'var(--color-primary)' }}>{item.n}. {item.t}</div>
-                <div style={{ color: 'var(--color-muted)' }}>{item.d}</div>
+              <div key={item.step} className="glass-2 p-3.5 rounded-xl">
+                <div className="font-semibold mb-1" style={{ color: 'var(--color-primary)' }}>
+                  {item.step}. {item.title}
+                </div>
+                <div className="leading-relaxed" style={{ color: 'var(--color-muted)' }}>{item.desc}</div>
               </div>
             ))}
           </div>
-        </div>
+        </section>
+
       </main>
 
-      {/* Toasts */}
-      <div className="fixed bottom-6 right-6 z-50 space-y-2 pointer-events-none">
+      {/* ── Toasts ── */}
+      <div
+        className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 pointer-events-none"
+        aria-live="polite"
+        aria-atomic="false"
+      >
         {toasts.map(t => (
-          <div key={t.id} className={`toast ${t.type}`}>
-            <div className="font-semibold" style={{ color: 'var(--color-fg)' }}>{t.title}</div>
-            {t.message && <div className="mt-0.5 text-xs" style={{ color: 'var(--color-fg-dim)' }}>{t.message}</div>}
+          <div
+            key={t.id}
+            className={`toast ${t.type}`}
+            role="alert"
+          >
+            <p className="font-semibold text-sm" style={{ color: 'var(--color-fg)' }}>{t.title}</p>
+            {t.msg && <p className="mt-0.5 text-xs" style={{ color: 'var(--color-fg-dim)' }}>{t.msg}</p>}
           </div>
         ))}
       </div>
@@ -440,158 +583,268 @@ export default function ButterflyApp() {
   )
 }
 
-// ─── StarField ────────────────────────────────────────────────────────
-function StarField() {
+// ─── Sub-components ─────────────────────────────────────────────────────
+
+function Row({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
+  return (
+    <div className="flex justify-between items-center">
+      <span style={{ color: 'var(--color-muted)' }}>{label}</span>
+      <span className="font-semibold" style={{ color: valueColor ?? 'var(--color-fg)' }}>{value}</span>
+    </div>
+  )
+}
+
+function StepDot({ active, done, label }: { active: boolean; done: boolean; label: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <div
+        className="w-2 h-2 rounded-full"
+        style={{
+          background: done ? 'var(--color-up)' : active ? 'var(--color-primary)' : 'var(--color-border)',
+        }}
+      />
+      <span style={{ color: active || done ? 'var(--color-fg)' : 'var(--color-muted)' }}>{label}</span>
+    </div>
+  )
+}
+
+// ─── StarBg ─────────────────────────────────────────────────────────────
+function StarBg() {
   const ref = useRef<HTMLCanvasElement>(null)
+
   useEffect(() => {
-    const c = ref.current; if (!c) return
-    const ctx = c.getContext('2d'); if (!ctx) return
-    const resize = () => { c.width = window.innerWidth; c.height = window.innerHeight }
-    resize(); window.addEventListener('resize', resize)
-    const stars = Array.from({ length: 160 }, () => ({
-      x: Math.random(), y: Math.random(),
-      r: Math.random() * 1.4 + 0.3,
-      a: Math.random() * 0.8 + 0.2,
-      sp: Math.random() * 0.008 + 0.002,
-      ph: Math.random() * Math.PI * 2,
+    const canvas = ref.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    const resize = () => {
+      canvas.width  = window.innerWidth
+      canvas.height = window.innerHeight
+    }
+    resize()
+    window.addEventListener('resize', resize)
+
+    type Star = { x: number; y: number; r: number; alpha: number; speed: number; phase: number }
+    const stars: Star[] = Array.from({ length: 180 }, () => ({
+      x: Math.random(),
+      y: Math.random(),
+      r: Math.random() * 1.5 + 0.2,
+      alpha: Math.random() * 0.7 + 0.15,
+      speed: Math.random() * 0.6 + 0.2,
+      phase: Math.random() * Math.PI * 2,
     }))
+
     let raf: number
     const draw = () => {
-      ctx.clearRect(0, 0, c.width, c.height)
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
       const t = Date.now() / 1000
-      stars.forEach(s => {
-        const alpha = s.a * (0.3 + 0.7 * ((Math.sin(t * s.sp * 10 + s.ph) + 1) / 2))
+      for (const s of stars) {
+        const a = s.alpha * (0.4 + 0.6 * ((Math.sin(t * s.speed + s.phase) + 1) / 2))
         ctx.beginPath()
-        ctx.arc(s.x * c.width, s.y * c.height, s.r, 0, Math.PI * 2)
-        ctx.fillStyle = `rgba(167,139,250,${alpha})`
+        ctx.arc(s.x * canvas.width, s.y * canvas.height, s.r, 0, Math.PI * 2)
+        ctx.fillStyle = `rgba(167,139,250,${a.toFixed(3)})`
         ctx.fill()
-      })
+      }
       raf = requestAnimationFrame(draw)
     }
     draw()
-    return () => { window.removeEventListener('resize', resize); cancelAnimationFrame(raf) }
+
+    return () => {
+      window.removeEventListener('resize', resize)
+      cancelAnimationFrame(raf)
+    }
   }, [])
+
   return <canvas ref={ref} className="starfield" aria-hidden="true" />
 }
 
-// ─── MyBetsPanel ──────────────────────────────────────────────────────
-function MyBetsPanel({
-  address, currentSlot, currentRoundId,
+// ─── MyBets ──────────────────────────────────────────────────────────────
+interface BetRecord {
+  slot: number
+  roundId: bigint
+  shares: number
+  isUp: boolean
+  claimed: boolean
+  settled: boolean
+  upWon: boolean
+  voided: boolean
+}
+
+function MyBets({
+  address,
+  slot,
+  roundId,
 }: {
   address: `0x${string}`
-  currentSlot: SlotId
-  currentRoundId: bigint
+  slot: SlotId
+  roundId: bigint
 }) {
   const publicClient = usePublicClient()
   const { writeContractAsync } = useWriteContract()
 
-  interface BetRecord {
-    slot: number; roundId: bigint
-    shares: number; isUp: boolean; claimed: boolean
-    settled: boolean; upWon: boolean; voided: boolean
-    isWinner: boolean
-  }
-
   const [records, setRecords] = useState<BetRecord[]>([])
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading]   = useState(false)
+  const [claimingId, setClaimingId] = useState<string | null>(null)
 
-  const fetchAll = useCallback(async () => {
-    if (!publicClient || !address) return
+  const load = useCallback(async () => {
+    if (!publicClient) return
     setLoading(true)
     const out: BetRecord[] = []
     try {
       for (let s = 0; s < 3; s++) {
-        const rid = await publicClient.readContract({
-          address: PREDICTION_ADDRESS, abi: PREDICTION_ABI,
-          functionName: 'currentRoundId', args: [BigInt(s)],
+        // Get current round id for this slot
+        const curId = await publicClient.readContract({
+          address: PREDICTION_ADDRESS,
+          abi: PREDICTION_ABI,
+          functionName: 'currentRoundId',
+          args: [BigInt(s)],
         }) as bigint
-        const from = rid > 15n ? rid - 15n : 0n
-        for (let id = rid; id >= from; id--) {
+
+        if (curId === 0n) continue
+
+        // Check last 20 rounds
+        const fromId = curId > 20n ? curId - 20n : 1n
+        for (let rid = curId; rid >= fromId; rid--) {
           try {
             const bet = await publicClient.readContract({
-              address: PREDICTION_ADDRESS, abi: PREDICTION_ABI,
-              functionName: 'bets', args: [s, id, address],
-            }) as [number, boolean, boolean]
-            if (!bet[0]) continue
+              address: PREDICTION_ADDRESS,
+              abi: PREDICTION_ABI,
+              functionName: 'bets',
+              args: [s, rid, address],
+            }) as readonly [number, boolean, boolean]
+
+            if (!bet[0]) continue // no bet in this round
+
             const round = await publicClient.readContract({
-              address: PREDICTION_ADDRESS, abi: PREDICTION_ABI,
-              functionName: 'rounds', args: [s, id],
-            }) as [bigint, bigint, bigint, bigint, bigint, bigint, bigint, bigint, bigint, bigint, boolean, boolean, boolean]
-            const settled = round[10]; const upWon = round[11]; const voided = round[12]
+              address: PREDICTION_ADDRESS,
+              abi: PREDICTION_ABI,
+              functionName: 'rounds',
+              args: [s, rid],
+            }) as readonly [bigint, bigint, bigint, bigint, bigint, bigint, bigint, bigint, bigint, bigint, boolean, boolean, boolean]
+
             out.push({
-              slot: s, roundId: id,
-              shares: Number(bet[0]), isUp: bet[1], claimed: bet[2],
-              settled, upWon, voided,
-              isWinner: settled && !voided && bet[1] === upWon,
+              slot: s,
+              roundId: rid,
+              shares: Number(bet[0]),
+              isUp: bet[1],
+              claimed: bet[2],
+              settled: round[10],
+              upWon: round[11],
+              voided: round[12],
             })
-          } catch { /* skip missing rounds */ }
+          } catch {
+            // round doesn't exist yet, skip
+          }
         }
       }
-      out.sort((a, b) => (a.slot !== b.slot ? a.slot - b.slot : Number(b.roundId - a.roundId)))
+
+      out.sort((a, b) => {
+        if (a.slot !== b.slot) return a.slot - b.slot
+        return Number(b.roundId - a.roundId)
+      })
       setRecords(out)
-    } finally { setLoading(false) }
+    } finally {
+      setLoading(false)
+    }
   }, [publicClient, address])
 
-  // Refetch when current round advances
-  useEffect(() => { fetchAll() }, [fetchAll, currentRoundId])
+  // Reload when current round id changes (new bet placed or round rolled)
+  useEffect(() => { load() }, [load, roundId])
 
   const handleClaim = async (rec: BetRecord) => {
+    if (!publicClient) return
+    const key = `${rec.slot}-${rec.roundId}`
     try {
+      setClaimingId(key)
       const hash = await writeContractAsync({
-        address: PREDICTION_ADDRESS, abi: PREDICTION_ABI,
-        functionName: 'claim', args: [rec.slot, rec.roundId], chainId: bsc.id,
+        address: PREDICTION_ADDRESS,
+        abi: PREDICTION_ABI,
+        functionName: 'claim',
+        args: [rec.slot, rec.roundId],
+        chainId: bsc.id,
       })
-      await publicClient!.waitForTransactionReceipt({ hash })
-      fetchAll()
-    } catch { /* ignore user reject */ }
+      await publicClient.waitForTransactionReceipt({ hash })
+      load()
+    } catch {
+      // user rejected or tx failed — silently ignore
+    } finally {
+      setClaimingId(null)
+    }
   }
 
-  if (!records.length && !loading) return null
+  if (!loading && records.length === 0) return null
 
   return (
-    <div className="glass p-5 space-y-3">
+    <section className="glass p-5 space-y-3" aria-label="我的下注记录">
       <div className="flex items-center justify-between">
         <h2 className="font-semibold" style={{ color: 'var(--color-fg)' }}>我的下注记录</h2>
-        <button onClick={fetchAll} className="text-xs" style={{ color: 'var(--color-primary)' }}>
+        <button
+          onClick={load}
+          className="text-xs px-3 py-1 rounded-lg"
+          style={{
+            color: 'var(--color-primary)',
+            border: '1px solid var(--color-border)',
+            background: 'transparent',
+            cursor: 'pointer',
+          }}
+        >
           {loading ? '加载中…' : '刷新'}
         </button>
       </div>
+
       {records.map(rec => {
-        const claimable = rec.settled && !rec.voided && rec.isWinner && !rec.claimed
+        const key = `${rec.slot}-${rec.roundId}`
+        const isWinner = rec.settled && !rec.voided && (rec.isUp === rec.upWon)
+        const claimable = isWinner && !rec.claimed
+        const isClaiming = claimingId === key
+
         const status =
-          rec.voided   ? { text: '已作废', color: 'var(--color-muted)' } :
-          !rec.settled ? { text: '进行中', color: 'var(--color-warn)' } :
-          rec.isWinner ? { text: '赢了',   color: 'var(--color-up)' } :
-                         { text: '输了',   color: 'var(--color-down)' }
+          rec.voided    ? { text: '已作废', color: 'var(--color-muted)' }   :
+          !rec.settled  ? { text: '进行中', color: 'var(--color-warn)' }    :
+          isWinner      ? { text: '赢了',   color: 'var(--color-up)' }      :
+                          { text: '输了',   color: 'var(--color-down)' }
+
         return (
-          <div key={`${rec.slot}-${rec.roundId}`}
-            className="glass-2 p-3 rounded-lg flex items-center justify-between gap-2">
-            <div>
-              <div className="text-xs mb-0.5" style={{ color: 'var(--color-muted)' }}>
-                {SLOTS[rec.slot].label} · #{rec.roundId.toString()}
+          <div
+            key={key}
+            className="glass-2 p-3.5 rounded-xl flex items-center justify-between gap-3"
+          >
+            <div className="min-w-0">
+              <div className="text-xs mb-1" style={{ color: 'var(--color-muted)' }}>
+                {SLOTS[rec.slot].label} &middot; 轮次 #{rec.roundId.toString()}
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold"
-                  style={{ color: rec.isUp ? 'var(--color-up)' : 'var(--color-down)' }}>
-                  {rec.isUp ? '▲ 涨' : '▼ 跌'} {rec.shares} 份
+              <div className="flex flex-wrap items-center gap-2">
+                <span
+                  className="text-sm font-semibold"
+                  style={{ color: rec.isUp ? 'var(--color-up)' : 'var(--color-down)' }}
+                >
+                  {rec.isUp ? '▲ 涨' : '▼ 跌'} &nbsp;{rec.shares} 份
                 </span>
-                <span className="text-xs px-1.5 py-0.5 rounded-full"
-                  style={{ color: status.color, background: `${status.color}22` }}>
+                <span
+                  className="text-xs px-2 py-0.5 rounded-full"
+                  style={{ color: status.color, background: `${status.color}1a` }}
+                >
                   {status.text}
                 </span>
                 {rec.claimed && (
-                  <span className="text-xs" style={{ color: 'var(--color-muted)' }}>已领</span>
+                  <span className="text-xs" style={{ color: 'var(--color-muted)' }}>已领取</span>
                 )}
               </div>
             </div>
+
             {claimable && (
-              <button className="btn-primary text-xs px-3 py-1.5 shrink-0" onClick={() => handleClaim(rec)}>
-                领奖
+              <button
+                className="btn-primary shrink-0 text-xs px-4 py-2"
+                onClick={() => handleClaim(rec)}
+                disabled={isClaiming}
+              >
+                {isClaiming ? '领取中…' : '领奖'}
               </button>
             )}
           </div>
         )
       })}
-    </div>
+    </section>
   )
 }
