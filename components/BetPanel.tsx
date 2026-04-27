@@ -53,20 +53,21 @@ export default function BetPanel({ slot, round, signer, address, onToast, onRefr
       const tokenContract = getSignerToken(signer)
       const predContract  = getSignerPrediction(signer)
 
-      // 0a. 读取代币精度，确保金额计算与合约一致
+      // 用 signer.getAddress() 确保地址大小写与链上完全一致
+      const signerAddress = await signer.getAddress()
+
+      // 0a. 读取代币精度
       const decimals: number = await tokenContract.decimals()
 
-      // 0b. 计算本次下注所需代币数量
-      // 优先用链上 sharePriceLocked（合约实际扣款金额），未启动时用合约默认值兜底
-      // 合约默认 sharePrice = 500_000 ether（18 位精度）
+      // 0b. 计算所需代币量：优先用链上 sharePriceLocked，未启动用 500_000 ether 兜底
       const sharePriceLocked: bigint = round?.sharePriceLocked ?? 0n
       const pricePerShare = sharePriceLocked > 0n
         ? sharePriceLocked
         : ethers.parseUnits(String(DEFAULT_SHARE_PRICE_ETH), decimals)
       const totalCost = pricePerShare * BigInt(shares)
 
-      // 0c. 检查余额是否充足，提前给出明确错误
-      const balance: bigint = await tokenContract.balanceOf(address)
+      // 0c. 余额检查
+      const balance: bigint = await tokenContract.balanceOf(signerAddress)
       if (balance < totalCost) {
         const need = ethers.formatUnits(totalCost, decimals)
         const have = ethers.formatUnits(balance, decimals)
@@ -78,19 +79,17 @@ export default function BetPanel({ slot, round, signer, address, onToast, onRefr
         return
       }
 
-      // 1. 检查 allowance，不足则 approve MaxUint256（无限授权），避免精度计算误差
-      const allowance: bigint = await tokenContract.allowance(address, PREDICTION_ADDRESS)
-      if (allowance < totalCost) {
-        setStep('approving')
-        onToast({ type: 'info', title: '等待授权', message: '请在钱包中确认代币授权…' })
-        const approveTx = await tokenContract.approve(PREDICTION_ADDRESS, ethers.MaxUint256)
-        await approveTx.wait()
-        onToast({ type: 'success', title: '授权成功' })
-      }
+      // 1. approve：每次下注前都强制重新 approve MaxUint256
+      //    不依赖 allowance 读取（避免地址大小写/缓存问题导致的误判）
+      setStep('approving')
+      onToast({ type: 'info', title: '步骤 1/2：代币授权', message: '请在钱包中确认授权交易…' })
+      const approveTx = await tokenContract.approve(PREDICTION_ADDRESS, ethers.MaxUint256)
+      await approveTx.wait()
+      onToast({ type: 'success', title: '授权成功，准备下注' })
 
-      // 2. 下注（合约签名：placeBet(uint8 slot, bool isUp, uint16 shares)，无 roundId 参数）
+      // 2. 下注
       setStep('betting')
-      onToast({ type: 'info', title: '等待下注', message: '请在钱包中确认交易…' })
+      onToast({ type: 'info', title: '步骤 2/2：确认下注', message: '请在钱包中确认下注交易…' })
       const isUp = direction === 'up'
       const betTx = await predContract.placeBet(slot, isUp, shares)
       onToast({ type: 'info', title: '交易发送', message: '等待区块确认…', txHash: betTx.hash })
@@ -101,10 +100,11 @@ export default function BetPanel({ slot, round, signer, address, onToast, onRefr
       setDirection(null)
       setShares(1)
     } catch (e: unknown) {
-      const msg = (e as { reason?: string; message?: string }).reason
-        ?? (e as Error).message
-        ?? '交易失败'
-      onToast({ type: 'error', title: '操作失败', message: msg.slice(0, 120) })
+      const err = e as { reason?: string; shortMessage?: string; message?: string; code?: string }
+      const msg = err.reason ?? err.shortMessage ?? err.message ?? '交易失败'
+      // 用户主动拒绝不报错
+      if (err.code === 'ACTION_REJECTED' || msg.includes('user rejected')) return
+      onToast({ type: 'error', title: '操作失败', message: msg.slice(0, 150) })
     } finally {
       setStep('idle')
     }
