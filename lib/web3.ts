@@ -2,13 +2,28 @@ import { ethers } from 'ethers'
 import { BSC_CHAIN_ID, BSC_RPC, BSC_CHAIN_CONFIG, PREDICTION_ADDRESS, TOKEN_ADDRESS } from './config'
 import { PREDICTION_ABI, TOKEN_ABI } from './abi'
 
-// ─── 只读 provider（公共 RPC）────────────────────────────────────
+// ─── 只读 provider（公共 RPC，带 fallback）───────────────────────
+const BSC_RPC_LIST = [
+  BSC_RPC,
+  'https://bsc-dataseed2.binance.org',
+  'https://bsc-dataseed3.binance.org',
+  'https://bsc-dataseed4.binance.org',
+]
+
 let _readProvider: ethers.JsonRpcProvider | null = null
+let _rpcIndex = 0
+
 export function getReadProvider(): ethers.JsonRpcProvider {
   if (!_readProvider) {
-    _readProvider = new ethers.JsonRpcProvider(BSC_RPC, BSC_CHAIN_ID)
+    _readProvider = new ethers.JsonRpcProvider(BSC_RPC_LIST[_rpcIndex], BSC_CHAIN_ID)
   }
   return _readProvider
+}
+
+/** 切换到下一个 RPC 节点（当当前节点超时时调用） */
+export function rotateRpc(): void {
+  _rpcIndex = (_rpcIndex + 1) % BSC_RPC_LIST.length
+  _readProvider = new ethers.JsonRpcProvider(BSC_RPC_LIST[_rpcIndex], BSC_CHAIN_ID)
 }
 
 export function getReadPrediction() {

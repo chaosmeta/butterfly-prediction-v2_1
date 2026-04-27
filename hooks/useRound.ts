@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { getReadPrediction } from '@/lib/web3'
+import { getReadPrediction, rotateRpc } from '@/lib/web3'
 import type { SlotId } from '@/lib/config'
 
 export interface RoundData {
@@ -68,7 +68,13 @@ export function useRound(slot: SlotId) {
       setRound(data)
       setError(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : '加载失败，请检查网络或合约配置')
+      // RPC 节点失败时自动切换到下一个节点，下一次轮询时使用新节点
+      rotateRpc()
+      const msg = e instanceof Error ? e.message : String(e)
+      // 只在非网络超时时才显示错误（超时会自动重试）
+      if (!msg.includes('timeout') && !msg.includes('network')) {
+        setError(msg.slice(0, 100))
+      }
     } finally {
       setLoading(false)
     }
