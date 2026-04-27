@@ -1044,26 +1044,17 @@ async function loadMyBets(){
 }
 
 // 任何人都可以调用 settle(slot) 触发结算并自动开新轮
-async function triggerSettle(){
+async function triggerSettle(attempt){
+  attempt = attempt ?? 1
   if(!signer){ toast('error','请先连接钱包'); return }
   const btn = document.getElementById('settle-btn')
-  btn.disabled = true
-  btn.innerHTML = '<span class="spinner"></span> 检查中'
-
-  // 先刷新一次链上状态，如果新轮已经开启（bettingOpen=true）则无需 settle
-  await fetchRound()
-  if(bettingOpen || notStarted){
-    toast('success','新一轮已自动开启')
-    btn.classList.add('hidden')
-    if(address) loadMyBets()
-    return
+  if(attempt === 1){
+    btn.disabled = true
+    btn.innerHTML = '<span class="spinner"></span> 结算中'
   }
-
-  btn.innerHTML = '<span class="spinner"></span> 结算中'
   try{
     const predC = getSignerPred()
     const tx = await predC.settle(Number(currentSlot))
-    toast('info','结算交易已发送','等待上链确认...')
     const receipt = await tx.wait()
     if(receipt && receipt.status === 1){
       toast('success','结算完成，新一轮已自动开启')
@@ -1075,74 +1066,61 @@ async function triggerSettle(){
     const msg = (e.reason ?? e.shortMessage ?? e.message ?? '')
     const low = msg.toLowerCase()
     if(low.includes('reject') || low.includes('denied')){
-      btn.disabled = false
-      btn.textContent = '触发结算'
+      btn.disabled = false; btn.textContent = '触发结算'
       return
     }
-    // 失败再刷新，如果新轮已自动开启就静默处理
-    await fetchRound()
-    if(bettingOpen){
-      toast('success','新一轮已自动开启')
-      btn.classList.add('hidden')
-      if(address) loadMyBets()
-    } else {
-      toast('error','结算失败', msg.slice(0,200))
-      btn.disabled = false
-      btn.textContent = '触发结算'
+    if(low.includes('not yet') && attempt <= 10){
+      btn.textContent = `等待中 (${attempt}/10)...`
+      setTimeout(() => triggerSettle(attempt + 1), 6000)
+      return
     }
+    toast('error','结算失败', msg.slice(0,200))
+    btn.disabled = false; btn.textContent = '触发结算'
   }
 }
 
-// 记录列表里的"触发结算"按钮
-// slot: 该记录的档位（0/1/2），ridStr: 该记录的 roundId 字符串（用于提示）
-async function triggerSettleForRecord(slot, ridStr, btn){
+// 轮询直到 settle 成功，每 6 秒重试一次（覆盖 view 函数和实际出块的时间差）
+async function triggerSettleForRecord(slot, ridStr, btn, attempt){
+  attempt = attempt ?? 1
   if(!signer){ toast('error','请先连接钱包'); return }
-  const origText = btn.textContent
-  btn.disabled = true
-  btn.innerHTML = '<span class="spinner"></span>'
+  if(attempt === 1){
+    btn.disabled = true
+    btn.innerHTML = '<span class="spinner"></span> 结算中'
+  }
 
-  // settle(slot) 操作的是该 slot 的 currentRoundId
-  // 如果你的那轮已是 currentRoundId 且 secondsLeft=0，这里就能成功
-  // 如果 currentRoundId 已经推进到新轮，说明旧轮已经被自动结算，直接刷新记录
   const slotNum = Number(slot)
   try{
-    // 先查该 slot 的链上状态
-    const readC = getReadPred()
-    const raw = await readC.getCurrentRound(slotNum)
-    const onChainSecondsLeft = raw[9]
-    const onChainRoundId = raw[0]
-    const targetRid = BigInt(ridStr)
-
-    if(onChainRoundId !== targetRid){
-      // currentRoundId 已推进，说明那轮已被自动结算
-      toast('info','该轮已自动结算','正在刷新记录...')
-      await loadMyBets()
-      return
-    }
-
-    if(onChainSecondsLeft > 0n){
-      toast('warning', '该轮未到期', `链上还剩 ${onChainSecondsLeft} 秒，无法结算`)
-      btn.disabled = false; btn.textContent = origText
-      return
-    }
-
-    // secondsLeft=0 且 roundId 匹配，发结算交易
     const predC = getSignerPred()
     const tx = await predC.settle(slotNum)
-    toast('info','结算交易已发送','等待上链...')
     const receipt = await tx.wait()
     if(receipt && receipt.status === 1){
-      toast('success','结算完成，可以领取了')
+      toast('success','结算完成，可以领取代币了')
+      await loadMyBets()
+      fetchRound()
+    } else {
+      // receipt.status=0：交易上链但失败，不太可能，刷新看看
+      await loadMyBets()
+      fetchRound()
     }
-    await loadMyBets()
   } catch(e){
     const msg = (e.reason ?? e.shortMessage ?? e.message ?? '')
     const low = msg.toLowerCase()
-    if(!low.includes('reject') && !low.includes('denied')){
-      toast('error','结算失败', msg.slice(0,200))
+    if(low.includes('reject') || low.includes('denied')){
+      // 用户拒绝，停止重试
+      btn.disabled = false
+      btn.textContent = `结算 #${ridStr}`
+      return
     }
+    if(low.includes('not yet') && attempt <= 10){
+      // 链上还差几秒，等 6 秒后自动重试，无需用户再点
+      btn.textContent = `等待中 (${attempt}/10)...`
+      setTimeout(() => triggerSettleForRecord(slot, ridStr, btn, attempt + 1), 6000)
+      return
+    }
+    // 其他错误
+    toast('error', '结算失败', msg.slice(0, 200))
     btn.disabled = false
-    btn.textContent = origText
+    btn.textContent = `结算 #${ridStr}`
   }
 }
 
