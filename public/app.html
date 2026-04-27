@@ -1012,17 +1012,21 @@ async function loadMyBets(){
 }
 
 // 任何人都可以调用 settle(slot) 触发结算并自动开新轮
-async function triggerSettle(){
+// 若链上还未到期（not yet），自动等待 5 秒后重试，最多重试 6 次
+async function triggerSettle(retryCount){
+  retryCount = retryCount ?? 0
   if(!signer){ toast('error','请先连接钱包'); return }
   const btn = document.getElementById('settle-btn')
   btn.disabled = true
-  btn.innerHTML = '<span class="spinner"></span> 结算中'
+  if(retryCount === 0){
+    btn.innerHTML = '<span class="spinner"></span> 结算中'
+  }
   try{
     const predC = getSignerPred()
     const tx = await predC.settle(currentSlot)
     toast('info','结算交易已发送','等待上链...')
     await tx.wait()
-    toast('success','结算完成','新一轮已自动开启')
+    toast('success','结算完成，新一轮已自动开启')
     btn.classList.add('hidden')
     fetchRound()
     if(address) loadMyBets()
@@ -1030,23 +1034,28 @@ async function triggerSettle(){
     const msg = (e.reason ?? e.shortMessage ?? e.message ?? '')
     const low = msg.toLowerCase()
     if(low.includes('reject') || low.includes('denied')){
-      // 用户拒绝，不提示
-    } else if(low.includes('not yet')){
-      toast('warning','尚未到结算时间','链上倒计时还未归零，稍后再试')
+      // 用户拒绝
+      btn.disabled = false
+      btn.textContent = '触发结算'
+    } else if(low.includes('not yet') && retryCount < 6){
+      // 链上时间差几秒，自动等 5 秒后重试
+      const wait = retryCount + 1
+      btn.textContent = `等待链上到期 (${wait}/6)...`
+      setTimeout(() => triggerSettle(retryCount + 1), 5000)
     } else {
       toast('error','结算失败', msg.slice(0,120))
+      btn.disabled = false
+      btn.textContent = '触发结算'
     }
-    btn.disabled = false
-    btn.textContent = '触发结算'
   }
 }
 
-// 记录列表里的"触发结算"按钮，结算指定 slot 后刷新记录
-async function triggerSettleForRecord(slot, btn){
+// 记录列表里的"触发结算"按钮，自动重试最多 6 次（每次等 5 秒）
+async function triggerSettleForRecord(slot, btn, retryCount){
+  retryCount = retryCount ?? 0
   if(!signer){ toast('error','请先连接钱包'); return }
-  const origText = btn.textContent
   btn.disabled = true
-  btn.innerHTML = '<span class="spinner"></span> 结算中'
+  if(retryCount === 0) btn.innerHTML = '<span class="spinner"></span> 结算中'
   try{
     const predC = getSignerPred()
     const tx = await predC.settle(slot)
@@ -1059,14 +1068,17 @@ async function triggerSettleForRecord(slot, btn){
     const msg = (e.reason ?? e.shortMessage ?? e.message ?? '')
     const low = msg.toLowerCase()
     if(low.includes('reject') || low.includes('denied')){
-      // 用户拒绝，不提示
-    } else if(low.includes('not yet')){
-      toast('warning','尚未到结算时间','链上时间还未到期，请等待倒计时归零后再试')
+      btn.disabled = false
+      btn.textContent = '触发结算'
+    } else if(low.includes('not yet') && retryCount < 6){
+      const wait = retryCount + 1
+      btn.textContent = `等待链上到期 (${wait}/6)...`
+      setTimeout(() => triggerSettleForRecord(slot, btn, retryCount + 1), 5000)
     } else {
       toast('error','结算失败', msg.slice(0,120))
+      btn.disabled = false
+      btn.textContent = '触发结算'
     }
-    btn.disabled = false
-    btn.textContent = origText
   }
 }
 
