@@ -799,15 +799,11 @@ async function fetchRound(){
   }
 }
 
-// 动态轮询：投注中 10s，已关闭/等待结算 3s（快速感知新轮开始）
+// 轮询：投注中或未启动 10s；本轮已关闭时 3s（快速感知合约开启下一轮）
 function startPoll(){
   if(pollTimer) clearInterval(pollTimer)
   fetchRound()
-  pollTimer = setInterval(async () => {
-    await fetchRound()
-    // 重新设置轮询间隔：关闭中用 3s，投注中用 10s
-    startPoll()
-  }, bettingOpen || notStarted ? 10000 : 3000)
+  pollTimer = setInterval(fetchRound, 3000)
 }
 
 // ─────────────────────────────────────────────
@@ -946,10 +942,11 @@ async function loadMyBets(){
     const isWinner   = r.settled && !r.voided && (r.isUp === r.upWon)
     const isLoser    = r.settled && !r.voided && (r.isUp !== r.upWon)
     const timeExpired = !r.settled && r.endTime > 0 && now > r.endTime
-    // 可以 claim 的条件：settled 且未领取（无论赢输，claim 都会退/发）
-    const claimable  = r.settled && !r.claimed && !r.voided
+    // claimable：已结算未领取；tryClaimable：时间到了但合约还未 settled，可以尝试 claim
+    const claimable    = r.settled && !r.claimed && !r.voided
+    const tryClaimable = timeExpired && !r.claimed
 
-    let badge = '', badgeClass = 'badge-pending', badgeNote = ''
+    let badge = '', badgeClass = 'badge-pending'
     if(r.voided){
       badge = '已作废'; badgeClass = 'badge-void'
     } else if(r.claimed){
@@ -959,17 +956,19 @@ async function loadMyBets(){
     } else if(r.settled && isLoser){
       badge = '输了'; badgeClass = 'badge-lose'
     } else if(timeExpired){
-      badge = '等待结算'; badgeClass = 'badge-pending'; badgeNote = '结算后可取回'
+      badge = '待结算'; badgeClass = 'badge-pending'
     } else {
       badge = '进行中'; badgeClass = 'badge-pending'
     }
 
-    // 按钮文案：赢了 → 领取 BNB 奖励；输了 → 取回代币
+    // 按钮：赢了领 BNB 奖励，输了取回代币，待结算尝试取回（合约 revert 会提示等待）
     let actionBtn = ''
     if(claimable){
-      const btnLabel  = isWinner ? '领取 BNB 奖励' : '取回代币'
-      const btnClass  = isWinner ? 'btn-primary' : 'btn-outline'
+      const btnLabel = isWinner ? '领取 BNB 奖励' : '取回代币'
+      const btnClass = isWinner ? 'btn-primary' : 'btn-outline'
       actionBtn = `<button class="btn ${btnClass} btn-sm" onclick="claimReward(${r.slot},'${r.roundId}',this)">${btnLabel}</button>`
+    } else if(tryClaimable){
+      actionBtn = `<button class="btn btn-outline btn-sm" onclick="claimReward(${r.slot},'${r.roundId}',this)">尝试取回</button>`
     }
 
     return `<div class="record-item">
@@ -978,10 +977,10 @@ async function loadMyBets(){
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:2px">
           <span class="record-dir ${r.isUp?'up':'down'}">${r.isUp?'▲ 涨':'▼ 跌'} ${r.shares} 份</span>
           <span class="badge ${badgeClass}">${badge}</span>
-          ${badgeNote ? `<span style="font-size:.72rem;color:var(--fg3)">${badgeNote}</span>` : ''}
         </div>
         ${isWinner && !r.claimed ? `<div style="font-size:.72rem;color:var(--up);margin-top:3px">赢得 BNB 奖励 + 代币退还</div>` : ''}
         ${isLoser  && !r.claimed ? `<div style="font-size:.72rem;color:var(--fg3);margin-top:3px">代币将原额退还</div>` : ''}
+        ${timeExpired && !r.settled ? `<div style="font-size:.72rem;color:var(--fg3);margin-top:3px">合约结算中，稍后自动完成</div>` : ''}
       </div>
       ${actionBtn}
     </div>`
@@ -1000,9 +999,16 @@ async function claimReward(slot, ridStr, btn){
     await loadMyBets()
     await refreshBalance()
   } catch(e){
-    const msg = e.reason??e.shortMessage??e.message??''
-    if(!msg.includes('rejected')) toast('error','领奖失败',msg.slice(0,100))
-    btn.disabled=false; btn.textContent='领奖'
+    const msg = (e.reason ?? e.shortMessage ?? e.message ?? '').toLowerCase()
+    if(msg.includes('reject') || msg.includes('denied')){
+      // 用户拒绝，不提示
+    } else if(msg.includes('not settled') || msg.includes('not ended') || msg.includes('ongoing')){
+      toast('warning','暂未结算','合约结算机器人正在处理，请稍后再试')
+    } else {
+      toast('error','操作失败', (e.reason ?? e.shortMessage ?? e.message ?? '').slice(0,120))
+    }
+    btn.disabled=false
+    btn.textContent = btn.textContent.includes('BNB') ? '领取 BNB 奖励' : '取回代币'
   }
 }
 
