@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>蝴蝶预测 | BNB 链价格涨跌竞猜</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.1/ethers.umd.min.js"></script>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#050816;--bg2:#0d1324;--bg3:#111827;
+    --border:#1e2d4a;--border2:#2a3a5c;
+    --fg:#e8eaf6;--fg2:#94a3b8;--fg3:#64748b;
+    --primary:#7c3aed;--primary-light:#a78bfa;--primary-dim:rgba(124,58,237,.15);
+    --up:#10b981;--up-dim:rgba(16,185,129,.12);
+    --down:#ef4444;--down-dim:rgba(239,68,68,.12);
+    --warn:#f59e0b;
+    --radius:12px;
+  }
+  html,body{min-height:100vh;background:var(--bg);color:var(--fg);font-family:'Inter',system-ui,sans-serif;font-size:15px;line-height:1.5}
+  a{color:var(--primary-light);text-decoration:none}
+
+  /* Canvas stars */
+  #stars{position:fixed;inset:0;z-index:0;pointer-events:none}
+
+  /* Layout */
+  #root{position:relative;z-index:1;min-height:100vh;display:flex;flex-direction:column}
+  .container{max-width:960px;margin:0 auto;padding:0 20px;width:100%}
+
+  /* Nav */
+  nav{border-bottom:1px solid var(--border);padding:14px 0}
+  nav .inner{display:flex;align-items:center;justify-content:space-between}
+  .logo{display:flex;align-items:center;gap:8px;font-weight:700;font-size:1.1rem;color:var(--fg)}
+  .logo-icon{width:32px;height:32px;background:var(--primary-dim);border:1px solid var(--primary-light);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1.1rem}
+
+  /* Buttons */
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:none;cursor:pointer;font-weight:600;border-radius:8px;transition:all .2s;white-space:nowrap;font-size:.875rem;padding:8px 16px}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn-primary{background:var(--primary);color:#fff}
+  .btn-primary:hover:not(:disabled){background:#6d28d9}
+  .btn-outline{background:transparent;border:1px solid var(--border2);color:var(--fg2)}
+  .btn-outline:hover:not(:disabled){border-color:var(--primary-light);color:var(--primary-light)}
+  .btn-up{background:var(--up-dim);border:2px solid transparent;color:var(--up);font-size:1rem;padding:14px;border-radius:10px;width:100%;font-weight:700;transition:all .2s}
+  .btn-up:hover:not(:disabled),.btn-up.active{background:var(--up);color:#fff;border-color:var(--up)}
+  .btn-down{background:var(--down-dim);border:2px solid transparent;color:var(--down);font-size:1rem;padding:14px;border-radius:10px;width:100%;font-weight:700;transition:all .2s}
+  .btn-down:hover:not(:disabled),.btn-down.active{background:var(--down);color:#fff;border-color:var(--down)}
+  .btn-sm{padding:5px 12px;font-size:.8rem}
+
+  /* Cards */
+  .card{background:rgba(13,19,36,.85);border:1px solid var(--border);border-radius:var(--radius);padding:20px;backdrop-filter:blur(8px)}
+  .card2{background:rgba(17,24,39,.6);border:1px solid var(--border);border-radius:8px;padding:12px}
+
+  /* Grid */
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  @media(max-width:640px){.grid2{grid-template-columns:1fr}}
+
+  /* Slot tabs */
+  .slots{display:flex;gap:6px;justify-content:center;margin-bottom:20px}
+  .slot-btn{background:rgba(124,58,237,.08);border:1px solid var(--border);color:var(--fg2);padding:8px 20px;border-radius:20px;cursor:pointer;font-size:.875rem;font-weight:600;transition:all .2s}
+  .slot-btn:hover,.slot-btn.active{background:var(--primary-dim);border-color:var(--primary-light);color:var(--primary-light)}
+
+  /* Progress */
+  .progress-wrap{height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;margin:8px 0}
+  .progress-fill{height:100%;background:linear-gradient(90deg,var(--primary),var(--primary-light));border-radius:3px;transition:width .5s}
+
+  /* Countdown */
+  .countdown{font-size:2.8rem;font-weight:800;font-family:monospace;color:var(--primary-light);letter-spacing:-.02em;text-align:center;line-height:1}
+  .countdown-label{text-align:center;font-size:.75rem;color:var(--fg3);margin-top:4px}
+
+  /* Stats grid */
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+  .stat-item{background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 12px}
+  .stat-label{font-size:.72rem;color:var(--fg3);margin-bottom:2px}
+  .stat-value{font-size:.9rem;font-weight:600;color:var(--fg);font-family:monospace}
+
+  /* Ratio bar */
+  .ratio-labels{display:flex;justify-content:space-between;font-size:.75rem;margin-bottom:4px}
+  .ratio-bar{height:8px;border-radius:4px;overflow:hidden;display:flex}
+  .ratio-up{background:var(--up);transition:width .5s}
+  .ratio-down{background:var(--down);flex:1}
+
+  /* Badge */
+  .badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:.72rem;font-weight:600}
+  .badge-open{background:var(--up-dim);color:var(--up)}
+  .badge-closed{background:var(--down-dim);color:var(--down)}
+  .badge-pending{background:rgba(245,158,11,.12);color:var(--warn)}
+  .badge-win{background:var(--up-dim);color:var(--up)}
+  .badge-lose{background:var(--down-dim);color:var(--down)}
+  .badge-void{background:rgba(100,116,139,.12);color:var(--fg3)}
+
+  /* Stepper */
+  .stepper{display:flex;align-items:center;gap:12px}
+  .stepper-btn{width:40px;height:40px;border-radius:8px;border:1px solid var(--border2);background:rgba(255,255,255,.04);color:var(--fg);font-size:1.2rem;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0}
+  .stepper-btn:hover:not(:disabled){border-color:var(--primary-light);color:var(--primary-light)}
+  .stepper-btn:disabled{opacity:.4;cursor:not-allowed}
+  .stepper-val{flex:1;text-align:center}
+  .stepper-num{font-size:2rem;font-weight:800;color:var(--fg)}
+  .stepper-sub{font-size:.75rem;color:var(--fg3)}
+  .quick-btns{display:flex;gap:6px;margin-top:8px}
+  .quick-btn{flex:1;padding:5px;font-size:.78rem;border:1px solid var(--border);background:transparent;color:var(--fg2);border-radius:6px;cursor:pointer;transition:all .2s}
+  .quick-btn:hover,.quick-btn.active{border-color:var(--primary-light);color:var(--primary-light);background:var(--primary-dim)}
+
+  /* Summary box */
+  .summary{border:1px solid var(--border);border-radius:8px;padding:12px;font-size:.82rem;margin-top:4px}
+  .summary-row{display:flex;justify-content:space-between;padding:3px 0}
+  .summary-key{color:var(--fg3)}
+  .summary-val{color:var(--fg);font-weight:600}
+
+  /* Toast */
+  #toast-container{position:fixed;bottom:24px;right:24px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+  .toast{background:var(--bg2);border:1px solid var(--border2);border-radius:10px;padding:12px 16px;min-width:260px;max-width:360px;animation:slideUp .25s ease;pointer-events:auto;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+  .toast-title{font-weight:700;font-size:.875rem;color:var(--fg)}
+  .toast-msg{font-size:.78rem;color:var(--fg2);margin-top:2px}
+  .toast.success{border-color:var(--up)}
+  .toast.error{border-color:var(--down)}
+  .toast.info{border-color:var(--primary-light)}
+  @keyframes slideUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+
+  /* Wallet modal */
+  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+  .modal{background:var(--bg2);border:1px solid var(--border2);border-radius:16px;padding:24px;width:100%;max-width:380px}
+  .modal-title{font-size:1.1rem;font-weight:700;margin-bottom:16px;color:var(--fg)}
+  .wallet-option{display:flex;align-items:center;gap:12px;padding:12px;border-radius:10px;border:1px solid var(--border);cursor:pointer;margin-bottom:8px;transition:all .2s;background:rgba(255,255,255,.02)}
+  .wallet-option:hover{border-color:var(--primary-light);background:var(--primary-dim)}
+  .wallet-icon{width:36px;height:36px;border-radius:8px;object-fit:contain;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:1.3rem}
+  .wallet-name{font-weight:600;color:var(--fg)}
+
+  /* Steps */
+  .steps{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+  .step{width:8px;height:8px;border-radius:50%;background:var(--border2);transition:all .3s}
+  .step.done{background:var(--up)}
+  .step.active{background:var(--primary-light);width:24px;border-radius:4px}
+  .step-label{font-size:.75rem;color:var(--fg3)}
+
+  /* Records */
+  .record-item{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px}
+  .record-meta{font-size:.72rem;color:var(--fg3);margin-bottom:2px}
+  .record-dir{font-size:.875rem;font-weight:700}
+  .record-dir.up{color:var(--up)}
+  .record-dir.down{color:var(--down)}
+
+  main{flex:1;padding:24px 0 40px}
+  .section{margin-bottom:20px}
+  .section-title{font-size:1rem;font-weight:700;margin-bottom:12px;color:var(--fg)}
+  .text-muted{color:var(--fg2)}
+  .flex-between{display:flex;justify-content:space-between;align-items:center}
+  .gap2{gap:8px}
+  .mt4{margin-top:4px}
+  .mt8{margin-top:8px}
+  .mt12{margin-top:12px}
+  .hidden{display:none!important}
+  .spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<canvas id="stars"></canvas>
+<div id="root">
+
+<!-- NAV -->
+<nav>
+  <div class="container">
+    <div class="inner">
+      <div class="logo">
+        <div class="logo-icon">🦋</div>
+        蝴蝶预测
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div id="balance-display" class="hidden" style="font-size:.8rem;color:var(--fg2)"></div>
+        <button id="connect-btn" class="btn btn-outline" onclick="openWalletModal()">连接钱包</button>
+        <button id="disconnect-btn" class="btn btn-outline btn-sm hidden" onclick="disconnect()">断开</button>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<!-- MAIN -->
+<main>
+  <div class="container">
+
+    <!-- Slot Tabs -->
+    <div class="slots">
+      <button class="slot-btn active" onclick="switchSlot(0,this)">20 分钟</button>
+      <button class="slot-btn" onclick="switchSlot(1,this)">1 小时</button>
+      <button class="slot-btn" onclick="switchSlot(2,this)">24 小时</button>
+    </div>
+
+    <div class="grid2">
+
+      <!-- ROUND PANEL -->
+      <div class="card">
+        <div class="flex-between" style="margin-bottom:12px">
+          <div>
+            <div style="font-size:.75rem;color:var(--fg3)" id="slot-label">20 分钟档</div>
+            <div style="font-weight:700;font-size:.95rem" id="round-id">轮次 #—</div>
+          </div>
+          <span class="badge badge-closed" id="status-badge">加载中</span>
+        </div>
+
+        <div class="countdown" id="countdown-display">--:--</div>
+        <div class="countdown-label" id="countdown-sub">距离结算</div>
+
+        <div class="progress-wrap">
+          <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+        </div>
+
+        <div class="stats">
+          <div class="stat-item">
+            <div class="stat-label">开盘价</div>
+            <div class="stat-value" id="stat-open">—</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">当前价</div>
+            <div class="stat-value" id="stat-current">—</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">BNB 奖池</div>
+            <div class="stat-value" id="stat-pool">—</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">每份价格</div>
+            <div class="stat-value" id="stat-price">500,000 BFLY</div>
+          </div>
+        </div>
+
+        <div style="margin-top:12px">
+          <div class="ratio-labels">
+            <span style="color:var(--up)" id="up-label">涨 50%</span>
+            <span style="color:var(--down)" id="down-label">跌 50%</span>
+          </div>
+          <div class="ratio-bar">
+            <div class="ratio-up" id="ratio-up" style="width:50%"></div>
+            <div class="ratio-down"></div>
+          </div>
+          <div class="ratio-labels mt4" style="color:var(--fg3);font-size:.72rem">
+            <span id="up-shares">0 份</span>
+            <span id="down-shares">0 份</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- BET PANEL -->
+      <div class="card">
+        <div class="flex-between" style="margin-bottom:14px">
+          <div style="font-weight:700;font-size:.95rem">我要投注</div>
+          <div style="font-size:.78rem;color:var(--fg3)" id="my-balance">余额：— BFLY</div>
+        </div>
+
+        <!-- Direction -->
+        <div class="grid2" style="gap:10px;margin-bottom:14px">
+          <button class="btn-up" id="btn-up" onclick="selectDir('up')">▲ 涨</button>
+          <button class="btn-down" id="btn-down" onclick="selectDir('down')">▼ 跌</button>
+        </div>
+
+        <!-- Shares -->
+        <div style="margin-bottom:14px">
+          <div class="flex-between" style="margin-bottom:6px">
+            <span style="font-size:.82rem;color:var(--fg2)">份数 (1–20)</span>
+            <span style="font-size:.82rem;color:var(--primary-light);font-weight:600" id="cost-display">需 500,000 BFLY</span>
+          </div>
+          <div class="stepper">
+            <button class="stepper-btn" onclick="changeShares(-1)">−</button>
+            <div class="stepper-val">
+              <div class="stepper-num" id="shares-num">1</div>
+              <div class="stepper-sub">份</div>
+            </div>
+            <button class="stepper-btn" onclick="changeShares(1)">+</button>
+          </div>
+          <div class="quick-btns">
+            <button class="quick-btn active" onclick="setShares(1,this)">1</button>
+            <button class="quick-btn" onclick="setShares(5,this)">5</button>
+            <button class="quick-btn" onclick="setShares(10,this)">10</button>
+            <button class="quick-btn" onclick="setShares(20,this)">20</button>
+          </div>
+        </div>
+
+        <!-- Summary -->
+        <div class="summary" id="bet-summary" style="display:none">
+          <div class="summary-row"><span class="summary-key">方向</span><span class="summary-val" id="sum-dir">—</span></div>
+          <div class="summary-row"><span class="summary-key">份数</span><span class="summary-val" id="sum-shares">—</span></div>
+          <div class="summary-row"><span class="summary-key">花费代币</span><span class="summary-val" id="sum-cost">—</span></div>
+          <div class="summary-row"><span class="summary-key">输了退款</span><span class="summary-val">代币原额退还</span></div>
+        </div>
+
+        <!-- Steps indicator -->
+        <div class="steps mt8" id="step-indicator" style="display:none">
+          <div class="step active" id="step-1"></div>
+          <div class="step" id="step-2"></div>
+          <span class="step-label" id="step-label-text">步骤 1/2：授权代币</span>
+        </div>
+
+        <!-- Submit -->
+        <button class="btn btn-primary" id="bet-btn" onclick="handleBet()" style="width:100%;margin-top:12px;height:46px;font-size:.95rem" disabled>
+          请连接钱包
+        </button>
+      </div>
+    </div>
+
+    <!-- MY BETS -->
+    <div class="section" id="my-bets-section" style="display:none;margin-top:16px">
+      <div class="card">
+        <div class="flex-between" style="margin-bottom:12px">
+          <div class="section-title" style="margin:0">我的下注记录</div>
+          <button class="btn btn-outline btn-sm" onclick="loadMyBets()">刷新</button>
+        </div>
+        <div id="bets-list">
+          <div style="text-align:center;color:var(--fg3);padding:20px;font-size:.875rem">点击刷新加载记录</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- HOW IT WORKS -->
+    <div class="card" style="margin-top:16px">
+      <div style="font-weight:700;margin-bottom:12px">玩法说明</div>
+      <div class="grid2" style="gap:10px">
+        <div class="card2">
+          <div style="color:var(--primary-light);font-weight:600;font-size:.82rem;margin-bottom:4px">1. 选时间档</div>
+          <div style="color:var(--fg2);font-size:.8rem">三档可选：20 分钟 / 1 小时 / 24 小时</div>
+        </div>
+        <div class="card2">
+          <div style="color:var(--primary-light);font-weight:600;font-size:.82rem;margin-bottom:4px">2. 选涨跌 · 选份数</div>
+          <div style="color:var(--fg2);font-size:.8rem">1 份 = 50 万 BFLY，最多 20 份</div>
+        </div>
+        <div class="card2">
+          <div style="color:var(--primary-light);font-weight:600;font-size:.82rem;margin-bottom:4px">3. 授权 + 下注</div>
+          <div style="color:var(--fg2);font-size:.8rem">先授权代币，再确认下注，两笔交易</div>
+        </div>
+        <div class="card2">
+          <div style="color:var(--primary-light);font-weight:600;font-size:.82rem;margin-bottom:4px">4. 结算领奖</div>
+          <div style="color:var(--fg2);font-size:.8rem">赢得 BNB 奖励；输了代币原额退还</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+</div><!-- #root -->
+
+<!-- WALLET MODAL -->
+<div id="wallet-modal" class="modal-bg hidden" onclick="closeWalletModalBg(event)">
+  <div class="modal">
+    <div class="modal-title">连接钱包</div>
+    <div id="wallet-list"></div>
+    <button class="btn btn-outline" onclick="closeWalletModal()" style="width:100%;margin-top:4px">取消</button>
+  </div>
+</div>
+
+<!-- TOAST CONTAINER -->
+<div id="toast-container"></div>
+
+<script>
+// ─────────────────────────────────────────────
+//  CONFIG
+// ─────────────────────────────────────────────
+const PRED_ADDR  = '0x14fb19D46896198be280296045DDcD419C1FFA67'
+const TOKEN_ADDR = '0x7ba7e046c9d062839611d4ca17909a2097567777'
+const BSC_CHAIN_ID = 56
+const BSC_RPC = 'https://shy-proportionate-butterfly.bsc.quiknode.pro/f99481698b34b4bd221c635cfccd4d06f2c26068/'
+const SHARE_PRICE_DEFAULT = ethers.parseEther('500000')
+const MAX_SHARES = 20
+const MIN_SHARES = 1
+const SLOT_LABELS = ['20 分钟', '1 小时', '24 小时']
+
+const PRED_ABI = [
+  'function getCurrentRound(uint8 slot) view returns (uint256 roundId, uint256 startTime, uint256 endTime, uint256 openPrice, uint256 currentPrice, uint256 totalUpShares, uint256 totalDownShares, uint256 bnbPool, uint256 sharePriceLocked, uint256 secondsLeft, bool bettingOpen)',
+  'function rounds(uint8 slot, uint256 rid) view returns (uint256 startTime, uint256 endTime, uint256 openPrice, uint256 closePrice, uint256 openCumPrice, uint256 openCumTimestamp, uint256 totalUpShares, uint256 totalDownShares, uint256 bnbPool, uint256 sharePriceLocked, bool settled, bool upWon, bool voided)',
+  'function bets(uint8 slot, uint256 roundId, address user) view returns (uint16 shares, bool isUp, bool claimed)',
+  'function currentRoundId(uint256 index) view returns (uint256)',
+  'function placeBet(uint8 slot, bool isUp, uint16 shares) nonpayable',
+  'function claim(uint8 slot, uint256 rid) nonpayable',
+  'function sharePrice() view returns (uint256)',
+]
+const TOKEN_ABI = [
+  'function balanceOf(address) view returns (uint256)',
+  'function allowance(address,address) view returns (uint256)',
+  'function approve(address,uint256) returns (bool)',
+  'function decimals() view returns (uint8)',
+]
+
+// ─────────────────────────────────────────────
+//  STATE
+// ─────────────────────────────────────────────
+let provider = null
+let signer   = null
+let address  = null
+let readProvider = null
+let currentSlot  = 0
+let currentDir   = null  // 'up' | 'down'
+let shares       = 1
+let sharePriceLocked = SHARE_PRICE_DEFAULT
+let tokenDecimals = 18
+let bettingOpen  = false
+let notStarted   = true
+let roundId      = 0n
+let countdownTimer = null
+let pollTimer    = null
+
+// ─────────────────────────────────────────────
+//  CANVAS STARS
+// ─────────────────────────────────────────────
+;(function initStars(){
+  const c = document.getElementById('stars')
+  const ctx = c.getContext('2d')
+  const stars = Array.from({length:150},()=>({
+    x:Math.random(), y:Math.random(),
+    r:Math.random()*1.3+0.3,
+    a:Math.random()*.7+.2,
+    sp:Math.random()*.006+.002,
+    ph:Math.random()*Math.PI*2
+  }))
+  function resize(){ c.width=innerWidth; c.height=innerHeight }
+  resize(); window.addEventListener('resize',resize)
+  function draw(){
+    ctx.clearRect(0,0,c.width,c.height)
+    const t=Date.now()/1000
+    for(const s of stars){
+      const a=s.a*(0.3+0.7*((Math.sin(t*s.sp*10+s.ph)+1)/2))
+      ctx.beginPath()
+      ctx.arc(s.x*c.width,s.y*c.height,s.r,0,Math.PI*2)
+      ctx.fillStyle=`rgba(167,139,250,${a})`
+      ctx.fill()
+    }
+    requestAnimationFrame(draw)
+  }
+  draw()
+})()
+
+// ─────────────────────────────────────────────
+//  READ PROVIDER
+// ─────────────────────────────────────────────
+function getReadProvider(){
+  if(!readProvider) readProvider = new ethers.JsonRpcProvider(BSC_RPC, BSC_CHAIN_ID)
+  return readProvider
+}
+function getReadPred(){ return new ethers.Contract(PRED_ADDR, PRED_ABI, getReadProvider()) }
+function getSignerPred(){ return new ethers.Contract(PRED_ADDR, PRED_ABI, signer) }
+function getSignerToken(){ return new ethers.Contract(TOKEN_ADDR, TOKEN_ABI, signer) }
+
+// ─────────────────────────────────────────────
+//  FORMAT HELPERS
+// ─────────────────────────────────────────────
+function fmtToken(wei, dec=18){
+  const n = parseFloat(ethers.formatUnits(wei, dec))
+  if(n>=1e6) return (n/1e6).toFixed(2)+'M'
+  if(n>=1e3) return (n/1e3).toFixed(1)+'K'
+  return n.toLocaleString('zh-CN',{maximumFractionDigits:2})
+}
+function fmtBnb(wei){ return parseFloat(ethers.formatEther(wei)).toFixed(4)+' BNB' }
+function fmtCountdown(secs){
+  if(secs<=0) return '00:00'
+  const h=Math.floor(secs/3600),m=Math.floor((secs%3600)/60),s=secs%60
+  if(h>0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+}
+
+// ─────────────────────────────────────────────
+//  TOAST
+// ─────────────────────────────────────────────
+function toast(type,title,msg=''){
+  const c=document.getElementById('toast-container')
+  const el=document.createElement('div')
+  el.className=`toast ${type}`
+  el.innerHTML=`<div class="toast-title">${title}</div>${msg?`<div class="toast-msg">${msg}</div>`:''}`
+  c.appendChild(el)
+  setTimeout(()=>el.remove(),5000)
+}
+
+// ─────────────────────────────────────────────
+//  WALLET MODAL
+// ─────────────────────────────────────────────
+function openWalletModal(){
+  const list = document.getElementById('wallet-list')
+  const providers = window.ethereum
+    ? [{name:'MetaMask / 已安装钱包', icon:'🦊', provider: window.ethereum}]
+    : []
+
+  // EIP-6963 detected wallets
+  const eip6963 = window.__eip6963Wallets || []
+  eip6963.forEach(w=>{
+    if(!providers.find(p=>p.name===w.info.name)){
+      providers.push({name:w.info.name, icon:w.info.icon, provider:w.provider, isImg:true})
+    }
+  })
+
+  if(providers.length===0){
+    list.innerHTML=`<div style="color:var(--fg2);font-size:.875rem;text-align:center;padding:16px">未检测到钱包扩展<br><br><a href="https://metamask.io" target="_blank" style="color:var(--primary-light)">安装 MetaMask</a></div>`
+  } else {
+    list.innerHTML = providers.map((p,i)=>`
+      <div class="wallet-option" onclick="connectWallet(${i})">
+        <div class="wallet-icon">${p.isImg?`<img src="${p.icon}" width="28" height="28" style="border-radius:6px" />`:`<span>${p.icon}</span>`}</div>
+        <div class="wallet-name">${p.name}</div>
+      </div>
+    `).join('')
+  }
+  list._providers = providers
+  document.getElementById('wallet-modal').classList.remove('hidden')
+}
+function closeWalletModal(){ document.getElementById('wallet-modal').classList.add('hidden') }
+function closeWalletModalBg(e){ if(e.target===e.currentTarget) closeWalletModal() }
+
+// ─────────────────────────────────────────────
+//  CONNECT
+// ─────────────────────────────────────────────
+window.__eip6963Wallets = []
+window.addEventListener('eip6963:announceProvider', e=>{
+  if(!window.__eip6963Wallets.find(w=>w.info.uuid===e.detail.info.uuid)){
+    window.__eip6963Wallets.push(e.detail)
+  }
+})
+window.dispatchEvent(new Event('eip6963:requestProvider'))
+
+async function connectWallet(idx){
+  closeWalletModal()
+  const list = document.getElementById('wallet-list')
+  const prov = list._providers?.[idx]
+  if(!prov) return
+  try {
+    const web3Provider = new ethers.BrowserProvider(prov.provider)
+    await web3Provider.send('eth_requestAccounts',[])
+    const net = await web3Provider.getNetwork()
+    if(Number(net.chainId)!==BSC_CHAIN_ID){
+      try{
+        await web3Provider.send('wallet_switchEthereumChain',[{chainId:'0x38'}])
+      } catch(e){
+        if(e.code===4902){
+          await web3Provider.send('wallet_addEthereumChain',[{
+            chainId:'0x38',chainName:'BNB Smart Chain',
+            nativeCurrency:{name:'BNB',symbol:'BNB',decimals:18},
+            rpcUrls:['https://bsc-dataseed1.binance.org'],
+            blockExplorerUrls:['https://bscscan.com']
+          }])
+        } else { toast('error','切链失败','请手动切换到 BSC 网络'); return }
+      }
+    }
+    provider = new ethers.BrowserProvider(prov.provider)
+    signer = await provider.getSigner()
+    address = await signer.getAddress()
+
+    // fetch decimals once
+    const tokenR = new ethers.Contract(TOKEN_ADDR, TOKEN_ABI, getReadProvider())
+    tokenDecimals = await tokenR.decimals()
+
+    onConnected()
+    toast('success','钱包已连接',address.slice(0,6)+'...'+address.slice(-4))
+
+    // Listen for account/chain changes
+    prov.provider.on?.('accountsChanged', accs => { if(accs.length===0) disconnect(); else connectWallet(idx) })
+    prov.provider.on?.('chainChanged', () => window.location.reload())
+  } catch(e){
+    toast('error','连接失败',e.message?.slice(0,100)||'用户拒绝')
+  }
+}
+
+function disconnect(){
+  provider=null; signer=null; address=null
+  document.getElementById('connect-btn').classList.remove('hidden')
+  document.getElementById('disconnect-btn').classList.add('hidden')
+  document.getElementById('balance-display').classList.add('hidden')
+  document.getElementById('my-bets-section').style.display='none'
+  document.getElementById('my-balance').textContent='余额：— BFLY'
+  updateBetBtn()
+}
+
+function onConnected(){
+  document.getElementById('connect-btn').classList.add('hidden')
+  document.getElementById('disconnect-btn').classList.remove('hidden')
+  document.getElementById('my-bets-section').style.display=''
+  refreshBalance()
+  updateBetBtn()
+}
+
+async function refreshBalance(){
+  if(!address) return
+  try{
+    const t = new ethers.Contract(TOKEN_ADDR, TOKEN_ABI, getReadProvider())
+    const bal = await t.balanceOf(address)
+    document.getElementById('my-balance').textContent=`余额：${fmtToken(bal,tokenDecimals)} BFLY`
+    document.getElementById('balance-display').textContent=`${fmtToken(bal,tokenDecimals)} BFLY`
+    document.getElementById('balance-display').classList.remove('hidden')
+  } catch{}
+}
+
+// ─────────────────────────────────────────────
+//  SLOT / DIRECTION / SHARES UI
+// ─────────────────────────────────────────────
+function switchSlot(slot, btn){
+  currentSlot = slot
+  currentDir  = null
+  document.querySelectorAll('.slot-btn').forEach(b=>b.classList.remove('active'))
+  btn.classList.add('active')
+  document.getElementById('slot-label').textContent = SLOT_LABELS[slot]+' 档'
+  document.getElementById('btn-up').classList.remove('active')
+  document.getElementById('btn-down').classList.remove('active')
+  document.getElementById('bet-summary').style.display='none'
+  fetchRound()
+}
+
+function selectDir(dir){
+  currentDir = dir
+  document.getElementById('btn-up').classList.toggle('active', dir==='up')
+  document.getElementById('btn-down').classList.toggle('active', dir==='down')
+  updateSummary()
+  updateBetBtn()
+}
+
+function changeShares(delta){
+  setShares(Math.min(MAX_SHARES, Math.max(MIN_SHARES, shares+delta)), null)
+}
+
+function setShares(n, btn){
+  shares = n
+  document.getElementById('shares-num').textContent = n
+  document.querySelectorAll('.quick-btn').forEach(b=>b.classList.remove('active'))
+  if(btn) btn.classList.add('active')
+  const cost = sharePriceLocked * BigInt(n)
+  document.getElementById('cost-display').textContent = `需 ${fmtToken(cost,tokenDecimals)} BFLY`
+  updateSummary()
+}
+
+function updateSummary(){
+  if(!currentDir){ document.getElementById('bet-summary').style.display='none'; return }
+  document.getElementById('bet-summary').style.display=''
+  document.getElementById('sum-dir').textContent = currentDir==='up'?'▲ 涨':'▼ 跌'
+  document.getElementById('sum-shares').textContent = shares+' 份'
+  const cost = sharePriceLocked * BigInt(shares)
+  document.getElementById('sum-cost').textContent = fmtToken(cost,tokenDecimals)+' BFLY'
+}
+
+// ─────────────────────────────────────────────
+//  FETCH ROUND DATA
+// ─────────────────────────────────────────────
+async function fetchRound(){
+  try{
+    const c = getReadPred()
+    const r = await c.getCurrentRound(currentSlot)
+    roundId          = r.roundId
+    const endTime    = r.endTime
+    const startTime  = r.startTime
+    const upShares   = r.totalUpShares
+    const downShares = r.totalDownShares
+    bettingOpen      = r.bettingOpen
+    const spl        = r.sharePriceLocked
+    sharePriceLocked = spl > 0n ? spl : SHARE_PRICE_DEFAULT
+    notStarted       = roundId===0n && endTime===0n
+
+    // Round panel
+    document.getElementById('round-id').textContent = notStarted ? '等待首笔下注' : `轮次 #${roundId}`
+    document.getElementById('slot-label').textContent = SLOT_LABELS[currentSlot]+' 档'
+
+    // Status badge
+    const badge = document.getElementById('status-badge')
+    if(notStarted){ badge.className='badge badge-pending'; badge.textContent='待启动' }
+    else if(bettingOpen){ badge.className='badge badge-open'; badge.textContent='投注中' }
+    else{ badge.className='badge badge-closed'; badge.textContent='已关闭' }
+
+    // Price stats
+    document.getElementById('stat-open').textContent    = r.openPrice>0n ? fmtToken(r.openPrice)+' BNB':  '—'
+    document.getElementById('stat-current').textContent = r.currentPrice>0n ? fmtToken(r.currentPrice)+' BNB': '—'
+    document.getElementById('stat-pool').textContent    = fmtBnb(r.bnbPool)
+    document.getElementById('stat-price').textContent   = fmtToken(sharePriceLocked,tokenDecimals)+' BFLY'
+
+    // Ratio
+    const total = Number(upShares)+Number(downShares)
+    const upPct = total>0 ? Math.round(Number(upShares)/total*100) : 50
+    document.getElementById('ratio-up').style.width   = upPct+'%'
+    document.getElementById('up-label').textContent   = `涨 ${upPct}%`
+    document.getElementById('down-label').textContent = `跌 ${100-upPct}%`
+    document.getElementById('up-shares').textContent  = upShares+' 份'
+    document.getElementById('down-shares').textContent = downShares+' 份'
+
+    // Countdown
+    if(countdownTimer) clearInterval(countdownTimer)
+    if(notStarted){
+      document.getElementById('countdown-display').textContent='--:--'
+      document.getElementById('countdown-sub').textContent='首笔下注后开始计时'
+      document.getElementById('progress-fill').style.width='0%'
+    } else {
+      const end=Number(endTime), start=Number(startTime), dur=end-start
+      function tick(){
+        const left=Math.max(0,end-Math.floor(Date.now()/1000))
+        document.getElementById('countdown-display').textContent=fmtCountdown(left)
+        document.getElementById('countdown-sub').textContent=left===0?'已结算':'距离结算'
+        const prog=dur>0?Math.min(1,(Date.now()/1000-start)/dur):0
+        document.getElementById('progress-fill').style.width=(prog*100).toFixed(1)+'%'
+      }
+      tick()
+      countdownTimer=setInterval(tick,1000)
+    }
+
+    // Update cost display with latest price
+    const cost = sharePriceLocked * BigInt(shares)
+    document.getElementById('cost-display').textContent = `需 ${fmtToken(cost,tokenDecimals)} BFLY`
+
+    updateBetBtn()
+    updateSummary()
+  } catch(e){
+    document.getElementById('status-badge').className='badge badge-closed'
+    document.getElementById('status-badge').textContent='加载失败'
+  }
+}
+
+// Poll every 10s
+function startPoll(){
+  fetchRound()
+  pollTimer = setInterval(fetchRound, 10000)
+}
+
+// ─────────────────────────────────────────────
+//  BET BUTTON STATE
+// ─────────────────────────────────────────────
+function updateBetBtn(){
+  const btn = document.getElementById('bet-btn')
+  if(!address)                         { btn.disabled=true;  btn.textContent='请连接钱包'; return }
+  if(!currentDir)                      { btn.disabled=true;  btn.textContent='请选择涨 / 跌'; return }
+  if(!notStarted && !bettingOpen)      { btn.disabled=true;  btn.textContent='本轮已关闭下注'; return }
+  btn.disabled=false
+  btn.textContent = notStarted
+    ? `首笔下注 · 启动第一轮 · ${shares} 份 ${currentDir==='up'?'涨':'跌'}`
+    : `确认下注 · ${shares} 份 ${currentDir==='up'?'▲ 涨':'▼ 跌'}`
+}
+
+// ─────────────────────────────────────────────
+//  BET FLOW
+// ─────────────────────────────────────────────
+async function handleBet(){
+  if(!address||!signer||!currentDir) return
+  const btn = document.getElementById('bet-btn')
+  const stepInd = document.getElementById('step-indicator')
+
+  try{
+    const tokenC = getSignerToken()
+    const predC  = getSignerPred()
+
+    const pricePerShare = sharePriceLocked
+    const totalCost     = pricePerShare * BigInt(shares)
+
+    // Check balance
+    const tokenR = new ethers.Contract(TOKEN_ADDR, TOKEN_ABI, getReadProvider())
+    const bal = await tokenR.balanceOf(address)
+    if(bal < totalCost){
+      toast('error','余额不足',`需 ${fmtToken(totalCost,tokenDecimals)} BFLY，余额 ${fmtToken(bal,tokenDecimals)} BFLY`)
+      return
+    }
+
+    // STEP 1: Approve
+    const allowance = await tokenR.allowance(address, PRED_ADDR)
+    if(allowance < totalCost){
+      btn.disabled=true
+      btn.innerHTML='<span class="spinner"></span> 授权中...'
+      stepInd.style.display='flex'
+      document.getElementById('step-1').className='step active'
+      document.getElementById('step-2').className='step'
+      document.getElementById('step-label-text').textContent='步骤 1/2：授权代币'
+      toast('info','步骤 1/2','请在钱包中确认授权交易...')
+
+      const approveTx = await tokenC.approve(PRED_ADDR, ethers.MaxUint256)
+      toast('info','授权交易已发送','等待上链确认...')
+      await approveTx.wait()
+      toast('success','授权成功','正在提交下注...')
+    }
+
+    // STEP 2: Place bet
+    btn.innerHTML='<span class="spinner"></span> 下注中...'
+    document.getElementById('step-1').className='step done'
+    document.getElementById('step-2').className='step active'
+    document.getElementById('step-label-text').textContent='步骤 2/2：确认下注'
+    toast('info','步骤 2/2','请在钱包中确认下注交易...')
+
+    const isUp = currentDir==='up'
+    const betTx = await predC.placeBet(currentSlot, isUp, shares)
+    toast('info','下注交易已发送','等待上链确认...')
+    await betTx.wait()
+
+    toast('success','下注成功！',`${shares} 份 ${isUp?'涨':'跌'}`)
+    currentDir=null
+    document.getElementById('btn-up').classList.remove('active')
+    document.getElementById('btn-down').classList.remove('active')
+    document.getElementById('bet-summary').style.display='none'
+    stepInd.style.display='none'
+
+    await fetchRound()
+    await refreshBalance()
+    await loadMyBets()
+
+  } catch(e){
+    const msg = e.reason ?? e.shortMessage ?? e.message ?? ''
+    if(!msg.includes('user rejected')&&!msg.includes('User rejected')&&!e.code?.toString().includes('ACTION_REJECTED')){
+      toast('error','操作失败',msg.slice(0,140))
+    }
+    document.getElementById('step-indicator').style.display='none'
+  } finally {
+    updateBetBtn()
+    refreshBalance()
+  }
+}
+
+// ─────────────────────────────────────────────
+//  MY BETS
+// ─────────────────────────────────────────────
+async function loadMyBets(){
+  if(!address) return
+  const list = document.getElementById('bets-list')
+  list.innerHTML=`<div style="text-align:center;color:var(--fg3);padding:16px;font-size:.875rem">加载中...</div>`
+
+  const records = []
+  try{
+    const c = getReadPred()
+    for(let s=0;s<3;s++){
+      const rid = await c.currentRoundId(BigInt(s))
+      const from = rid > 15n ? rid-15n : 0n
+      for(let id=rid; id>=from; id--){
+        try{
+          const bet = await c.bets(s, id, address)
+          if(Number(bet.shares)===0) continue
+          const round = await c.rounds(s, id)
+          records.push({
+            slot:s, roundId:id,
+            shares:Number(bet.shares), isUp:bet.isUp, claimed:bet.claimed,
+            settled:round.settled, upWon:round.upWon, voided:round.voided,
+          })
+        } catch{}
+      }
+    }
+  } catch(e){
+    list.innerHTML=`<div style="text-align:center;color:var(--down);padding:16px;font-size:.875rem">加载失败：${e.message?.slice(0,80)}</div>`
+    return
+  }
+
+  if(records.length===0){
+    list.innerHTML=`<div style="text-align:center;color:var(--fg3);padding:16px;font-size:.875rem">暂无下注记录</div>`
+    return
+  }
+
+  records.sort((a,b)=>a.slot!==b.slot?a.slot-b.slot:Number(b.roundId-a.roundId))
+  list.innerHTML = records.map(r=>{
+    const isWinner = r.settled&&!r.voided&&(r.isUp===r.upWon)
+    const claimable = isWinner&&!r.claimed
+    let badge='',badgeClass='badge-pending'
+    if(r.voided)          { badge='已作废'; badgeClass='badge-void' }
+    else if(!r.settled)   { badge='进行中'; badgeClass='badge-pending' }
+    else if(isWinner)     { badge='赢了';   badgeClass='badge-win' }
+    else                  { badge='输了';   badgeClass='badge-lose' }
+
+    return `<div class="record-item">
+      <div>
+        <div class="record-meta">${SLOT_LABELS[r.slot]} · #${r.roundId}</div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span class="record-dir ${r.isUp?'up':'down'}">${r.isUp?'▲ 涨':'▼ 跌'} ${r.shares} 份</span>
+          <span class="badge ${badgeClass}">${badge}</span>
+          ${r.claimed?'<span style="font-size:.72rem;color:var(--fg3)">已领</span>':''}
+        </div>
+      </div>
+      ${claimable?`<button class="btn btn-primary btn-sm" onclick="claimReward(${r.slot},'${r.roundId}',this)">领奖</button>`:''}
+    </div>`
+  }).join('')
+}
+
+async function claimReward(slot, ridStr, btn){
+  if(!signer) return
+  btn.disabled=true; btn.innerHTML='<span class="spinner"></span>'
+  try{
+    const predC = getSignerPred()
+    const tx = await predC.claim(slot, BigInt(ridStr))
+    toast('info','领奖交易已发送','等待上链...')
+    await tx.wait()
+    toast('success','领奖成功')
+    await loadMyBets()
+    await refreshBalance()
+  } catch(e){
+    const msg = e.reason??e.shortMessage??e.message??''
+    if(!msg.includes('rejected')) toast('error','领奖失败',msg.slice(0,100))
+    btn.disabled=false; btn.textContent='领奖'
+  }
+}
+
+// ─────────────────────────────────────────────
+//  INIT
+// ─────────────────────────────────────────────
+startPoll()
+</script>
+</body>
+</html>
