@@ -750,11 +750,20 @@ async function fetchRound(){
     document.getElementById('round-id').textContent = notStarted ? '等待首笔下注' : `轮次 #${roundId}`
     document.getElementById('slot-label').textContent = SLOT_LABELS[currentSlot]+' 档'
 
-    // Status badge
+    // Status badge + settle button
     const badge = document.getElementById('status-badge')
-    if(notStarted){ badge.className='badge badge-pending'; badge.textContent='待启动' }
-    else if(bettingOpen){ badge.className='badge badge-open'; badge.textContent='投注中' }
-    else{ badge.className='badge badge-closed'; badge.textContent='已关闭' }
+    const settleBtn = document.getElementById('settle-btn')
+    if(notStarted){
+      badge.className='badge badge-pending'; badge.textContent='待启动'
+      settleBtn.classList.add('hidden')
+    } else if(bettingOpen){
+      badge.className='badge badge-open'; badge.textContent='投注中'
+      settleBtn.classList.add('hidden')
+    } else {
+      badge.className='badge badge-closed'; badge.textContent='已关闭'
+      // 本轮已关闭未 settled，显示触发结算按钮（任何人都可以调 settle()）
+      settleBtn.classList.remove('hidden')
+    }
 
     // Price stats — 合约价格单位 1e18（BNB/BFLY），乘以 BNB/USDT 换算为 USDT 显示
     document.getElementById('stat-open').textContent    = fmtPriceUsdt(openPrice)
@@ -945,10 +954,10 @@ async function loadMyBets(){
   list.innerHTML = records.map(r => {
     const isWinner   = r.settled && !r.voided && (r.isUp === r.upWon)
     const isLoser    = r.settled && !r.voided && (r.isUp !== r.upWon)
+    // timeExpired: 时间到了但合约 settled 还是 false（等待 settle() 被调用）
     const timeExpired = !r.settled && r.endTime > 0 && now > r.endTime
-    // claimable：已结算未领取；tryClaimable：时间到了但合约还未 settled，可以尝试 claim
-    const claimable    = r.settled && !r.claimed && !r.voided
-    const tryClaimable = timeExpired && !r.claimed
+    // claimable: 已 settled 未领取，无论赢输都调 claim() — 赢得 BNB+代币，输只退代币
+    const claimable = r.settled && !r.claimed && !r.voided
 
     let badge = '', badgeClass = 'badge-pending'
     if(r.voided){
@@ -965,14 +974,17 @@ async function loadMyBets(){
       badge = '进行中'; badgeClass = 'badge-pending'
     }
 
-    // 按钮：赢了领 BNB 奖励，输了取回代币，待结算尝试取回（合约 revert 会提示等待）
+    // 按钮逻辑：
+    // - 已 settled + 赢 → 领取 BNB 奖励（含代币退还）
+    // - 已 settled + 输 → 取回代币
+    // - 时间到但未 settled → 触发结算（调 settle，结算后可领取）
     let actionBtn = ''
     if(claimable){
       const btnLabel = isWinner ? '领取 BNB 奖励' : '取回代币'
       const btnClass = isWinner ? 'btn-primary' : 'btn-outline'
       actionBtn = `<button class="btn ${btnClass} btn-sm" onclick="claimReward(${r.slot},'${r.roundId}',this)">${btnLabel}</button>`
-    } else if(tryClaimable){
-      actionBtn = `<button class="btn btn-outline btn-sm" onclick="claimReward(${r.slot},'${r.roundId}',this)">尝试取回</button>`
+    } else if(timeExpired){
+      actionBtn = `<button class="btn btn-outline btn-sm" onclick="triggerSettleForRecord(${r.slot},this)">触发结算</button>`
     }
 
     return `<div class="record-item">
@@ -984,35 +996,85 @@ async function loadMyBets(){
         </div>
         ${isWinner && !r.claimed ? `<div style="font-size:.72rem;color:var(--up);margin-top:3px">赢得 BNB 奖励 + 代币退还</div>` : ''}
         ${isLoser  && !r.claimed ? `<div style="font-size:.72rem;color:var(--fg3);margin-top:3px">代币将原额退还</div>` : ''}
-        ${timeExpired && !r.settled ? `<div style="font-size:.72rem;color:var(--fg3);margin-top:3px">合约结算中，稍后自动完成</div>` : ''}
+        ${timeExpired ? `<div style="font-size:.72rem;color:var(--fg3);margin-top:3px">先触发结算，结算后即可领取</div>` : ''}
       </div>
       ${actionBtn}
     </div>`
   }).join('')
 }
 
+// 任何人都可以调用 settle(slot) 触发结算并自动开新轮
+async function triggerSettle(){
+  if(!signer){ toast('error','请先连接钱包'); return }
+  const btn = document.getElementById('settle-btn')
+  btn.disabled = true
+  btn.innerHTML = '<span class="spinner"></span> 结算中'
+  try{
+    const predC = getSignerPred()
+    const tx = await predC.settle(currentSlot)
+    toast('info','结算交易已发送','等待上链...')
+    await tx.wait()
+    toast('success','结算完成','新一轮已自动开启')
+    btn.classList.add('hidden')
+    fetchRound()
+    if(address) loadMyBets()
+  } catch(e){
+    const msg = (e.reason ?? e.shortMessage ?? e.message ?? '')
+    const low = msg.toLowerCase()
+    if(!low.includes('reject') && !low.includes('denied')){
+      toast('error','结算失败', msg.slice(0,120))
+    }
+    btn.disabled = false
+    btn.textContent = '触发结算'
+  }
+}
+
+// 记录列表里的"触发结算"按钮，结算指定 slot 后刷新记录
+async function triggerSettleForRecord(slot, btn){
+  if(!signer){ toast('error','请先连接钱包'); return }
+  const origText = btn.textContent
+  btn.disabled = true
+  btn.innerHTML = '<span class="spinner"></span> 结算中'
+  try{
+    const predC = getSignerPred()
+    const tx = await predC.settle(slot)
+    toast('info','结算交易已发送','等待上链...')
+    await tx.wait()
+    toast('success','结算完成，请刷新记录')
+    fetchRound()
+    loadMyBets()
+  } catch(e){
+    const msg = (e.reason ?? e.shortMessage ?? e.message ?? '')
+    const low = msg.toLowerCase()
+    if(!low.includes('reject') && !low.includes('denied')){
+      toast('error','结算失败', msg.slice(0,120))
+    }
+    btn.disabled = false
+    btn.textContent = origText
+  }
+}
+
 async function claimReward(slot, ridStr, btn){
   if(!signer) return
-  btn.disabled=true; btn.innerHTML='<span class="spinner"></span>'
+  const origText = btn.textContent
+  btn.disabled = true
+  btn.innerHTML = '<span class="spinner"></span>'
   try{
     const predC = getSignerPred()
     const tx = await predC.claim(slot, BigInt(ridStr))
-    toast('info','领奖交易已发送','等待上链...')
+    toast('info','交易已发送','等待上链...')
     await tx.wait()
-    toast('success','领奖成功')
+    toast('success', origText.includes('BNB') ? '奖励已领取' : '代币已退还')
     await loadMyBets()
     await refreshBalance()
   } catch(e){
-    const msg = (e.reason ?? e.shortMessage ?? e.message ?? '').toLowerCase()
-    if(msg.includes('reject') || msg.includes('denied')){
-      // 用户拒绝，不提示
-    } else if(msg.includes('not settled') || msg.includes('not ended') || msg.includes('ongoing')){
-      toast('warning','暂未结算','合约结算机器人正在处理，请稍后再试')
-    } else {
-      toast('error','操作失败', (e.reason ?? e.shortMessage ?? e.message ?? '').slice(0,120))
+    const msg = (e.reason ?? e.shortMessage ?? e.message ?? '')
+    const low = msg.toLowerCase()
+    if(!low.includes('reject') && !low.includes('denied')){
+      toast('error','操作失败', msg.slice(0,120))
     }
-    btn.disabled=false
-    btn.textContent = btn.textContent.includes('BNB') ? '领取 BNB 奖励' : '取回代币'
+    btn.disabled = false
+    btn.textContent = origText
   }
 }
 
