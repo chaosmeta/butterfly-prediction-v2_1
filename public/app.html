@@ -456,7 +456,7 @@ function fmtCountdown(secs){
 
 // ─────────────────────────────────────────────
 //  TOAST
-// ─────────────────────────────────────────────
+// ────────────────────────────────────────────��
 function toast(type,title,msg=''){
   const c=document.getElementById('toast-container')
   const el=document.createElement('div')
@@ -467,88 +467,133 @@ function toast(type,title,msg=''){
 }
 
 // ─────────────────────────────────────────────
+//  EIP-6963 — 持续监听，随时收集钱包
+// ─────────────────────────────────────────────
+window.__eip6963Wallets = []
+window.addEventListener('eip6963:announceProvider', e => {
+  const detail = e.detail
+  if (!window.__eip6963Wallets.find(w => w.info.uuid === detail.info.uuid)) {
+    window.__eip6963Wallets.push(detail)
+  }
+})
+// 页面加载时触发一次，让已安装的钱包扩展宣告自己
+window.dispatchEvent(new Event('eip6963:requestProvider'))
+
+// ─────────────────────────────────────────────
 //  WALLET MODAL
 // ─────────────────────────────────────────────
 function openWalletModal(){
   const list = document.getElementById('wallet-list')
-  const providers = window.ethereum
-    ? [{name:'MetaMask / 已安装钱包', icon:'🦊', provider: window.ethereum}]
-    : []
-
-  // EIP-6963 detected wallets
-  const eip6963 = window.__eip6963Wallets || []
-  eip6963.forEach(w=>{
-    if(!providers.find(p=>p.name===w.info.name)){
-      providers.push({name:w.info.name, icon:w.info.icon, provider:w.provider, isImg:true})
-    }
-  })
-
-  if(providers.length===0){
-    list.innerHTML=`<div style="color:var(--fg2);font-size:.875rem;text-align:center;padding:16px">未检测到钱包扩展<br><br><a href="https://metamask.io" target="_blank" style="color:var(--primary-light)">安装 MetaMask</a></div>`
-  } else {
-    list.innerHTML = providers.map((p,i)=>`
-      <div class="wallet-option" onclick="connectWallet(${i})">
-        <div class="wallet-icon">${p.isImg?`<img src="${p.icon}" width="28" height="28" style="border-radius:6px" />`:`<span>${p.icon}</span>`}</div>
-        <div class="wallet-name">${p.name}</div>
-      </div>
-    `).join('')
-  }
-  list._providers = providers
+  list.innerHTML = `<div style="color:var(--fg3);font-size:.82rem;text-align:center;padding:12px">检测钱包中...</div>`
   document.getElementById('wallet-modal').classList.remove('hidden')
+
+  // 重新触发一次宣告，再等 300ms 收集所有钱包
+  window.dispatchEvent(new Event('eip6963:requestProvider'))
+  setTimeout(() => {
+    const wallets = []
+
+    // 优先展示 EIP-6963 宣告的钱包（包含图标、精确名称）
+    for (const w of window.__eip6963Wallets) {
+      wallets.push({ name: w.info.name, icon: w.info.icon, rawProvider: w.provider, isImg: true })
+    }
+
+    // 兜底：window.ethereum 存在且尚未被 EIP-6963 覆盖
+    if (window.ethereum && wallets.length === 0) {
+      const name = window.ethereum.isMetaMask ? 'MetaMask' :
+                   window.ethereum.isOKExWallet ? 'OKX Wallet' : '已安装钱包'
+      wallets.push({ name, icon: '🦊', rawProvider: window.ethereum, isImg: false })
+    }
+
+    list._wallets = wallets
+
+    if (wallets.length === 0) {
+      list.innerHTML = `
+        <div style="color:var(--fg2);font-size:.875rem;text-align:center;padding:20px;line-height:1.8">
+          未检测到钱包扩展<br>
+          <a href="https://metamask.io" target="_blank" rel="noreferrer" style="color:var(--primary-light)">安装 MetaMask</a>
+          &nbsp;|&nbsp;
+          <a href="https://www.okx.com/web3" target="_blank" rel="noreferrer" style="color:var(--primary-light)">安装 OKX Wallet</a>
+        </div>`
+    } else {
+      list.innerHTML = wallets.map((w, i) => `
+        <div class="wallet-option" onclick="connectWallet(${i})">
+          <div class="wallet-icon">
+            ${w.isImg
+              ? `<img src="${w.icon}" width="28" height="28" style="border-radius:6px" onerror="this.style.display='none'" />`
+              : `<span>${w.icon}</span>`}
+          </div>
+          <div class="wallet-name">${w.name}</div>
+        </div>`).join('')
+    }
+  }, 300)
 }
+
 function closeWalletModal(){ document.getElementById('wallet-modal').classList.add('hidden') }
 function closeWalletModalBg(e){ if(e.target===e.currentTarget) closeWalletModal() }
 
 // ─────────────────────────────────────────────
 //  CONNECT
 // ─────────────────────────────────────────────
-window.__eip6963Wallets = []
-window.addEventListener('eip6963:announceProvider', e=>{
-  if(!window.__eip6963Wallets.find(w=>w.info.uuid===e.detail.info.uuid)){
-    window.__eip6963Wallets.push(e.detail)
-  }
-})
-window.dispatchEvent(new Event('eip6963:requestProvider'))
-
 async function connectWallet(idx){
   closeWalletModal()
   const list = document.getElementById('wallet-list')
-  const prov = list._providers?.[idx]
-  if(!prov) return
+  const w = list._wallets?.[idx]
+  if (!w) return
+
   try {
-    const web3Provider = new ethers.BrowserProvider(prov.provider)
-    await web3Provider.send('eth_requestAccounts',[])
+    // 用选中钱包的 rawProvider 构造 BrowserProvider
+    const web3Provider = new ethers.BrowserProvider(w.rawProvider)
+
+    // 请求账户（触发钱包弹窗）
+    await web3Provider.send('eth_requestAccounts', [])
+
+    // 检查链 ID，不对就切链
     const net = await web3Provider.getNetwork()
-    if(Number(net.chainId)!==BSC_CHAIN_ID){
-      try{
-        await web3Provider.send('wallet_switchEthereumChain',[{chainId:'0x38'}])
-      } catch(e){
-        if(e.code===4902){
-          await web3Provider.send('wallet_addEthereumChain',[{
-            chainId:'0x38',chainName:'BNB Smart Chain',
-            nativeCurrency:{name:'BNB',symbol:'BNB',decimals:18},
-            rpcUrls:['https://bsc-dataseed1.binance.org'],
-            blockExplorerUrls:['https://bscscan.com']
+    if (Number(net.chainId) !== BSC_CHAIN_ID) {
+      try {
+        await web3Provider.send('wallet_switchEthereumChain', [{ chainId: '0x38' }])
+      } catch (switchErr) {
+        if (switchErr.code === 4902 || switchErr.data?.originalError?.code === 4902) {
+          await web3Provider.send('wallet_addEthereumChain', [{
+            chainId: '0x38',
+            chainName: 'BNB Smart Chain',
+            nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
+            rpcUrls: ['https://bsc-dataseed1.binance.org'],
+            blockExplorerUrls: ['https://bscscan.com'],
           }])
-        } else { toast('error','切链失败','请手动切换到 BSC 网络'); return }
+        } else {
+          toast('error', '切链失败', '请在钱包中手动切换到 BNB Smart Chain')
+          return
+        }
       }
     }
-    provider = new ethers.BrowserProvider(prov.provider)
-    signer = await provider.getSigner()
-    address = await signer.getAddress()
 
-    // fetch decimals once
-    const tokenR = new ethers.Contract(TOKEN_ADDR, TOKEN_ABI, getReadProvider())
-    tokenDecimals = await tokenR.decimals()
+    // 切链后重新实例化 provider（确保 chainId 正确）
+    provider = new ethers.BrowserProvider(w.rawProvider)
+    signer   = await provider.getSigner()
+    address  = await signer.getAddress()
+
+    // 读取代币精度（仅一次）
+    try {
+      const tokenR = new ethers.Contract(TOKEN_ADDR, TOKEN_ABI, getReadProvider())
+      tokenDecimals = Number(await tokenR.decimals())
+    } catch { tokenDecimals = 18 }
 
     onConnected()
-    toast('success','钱包已连接',address.slice(0,6)+'...'+address.slice(-4))
+    toast('success', '钱包已连接', address.slice(0, 6) + '...' + address.slice(-4))
 
-    // Listen for account/chain changes
-    prov.provider.on?.('accountsChanged', accs => { if(accs.length===0) disconnect(); else connectWallet(idx) })
-    prov.provider.on?.('chainChanged', () => window.location.reload())
-  } catch(e){
-    toast('error','连接失败',e.message?.slice(0,100)||'用户拒绝')
+    // 监听账户/链变化
+    w.rawProvider.on?.('accountsChanged', accs => {
+      if (!accs || accs.length === 0) disconnect()
+      else { address = accs[0]; refreshBalance() }
+    })
+    w.rawProvider.on?.('chainChanged', () => window.location.reload())
+
+  } catch (e) {
+    const msg = e.message ?? ''
+    if (!msg.toLowerCase().includes('reject') && !msg.toLowerCase().includes('denied')) {
+      toast('error', '连接失败', msg.slice(0, 120) || '请重试')
+    }
   }
 }
 
