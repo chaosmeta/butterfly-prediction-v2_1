@@ -420,7 +420,7 @@ async function fetchBnbPrice(){
 }
 
 // 将合约内部价格（BNB/BFLY，1e18精度）转换为 USDT/BFLY 并格式化
-// 将浮点数转为十进制字符串，永远不使用科学计数法
+// 将浮点数���为十进制字符串，永远不使用科学计数法
 function toDecimalStr(n, maxSig){
   if(n === 0) return '0'
   // toFixed 位数：取有效数字位置 + maxSig
@@ -1020,13 +1020,20 @@ async function triggerSettle(){
   btn.innerHTML = '<span class="spinner"></span> 结算中'
   try{
     const predC = getSignerPred()
-    // 直接发交易，写死 gasLimit 300000（settle 实际约 15-20 万 gas）
-    // 避免 estimateGas 因节点时间戳差异误判 "not yet"
     const tx = await predC.settle(Number(currentSlot), { gasLimit: 1000000n })
     toast('info','结算交易已发送','等待上链确认...')
     const receipt = await tx.wait()
     if(receipt.status === 0){
-      toast('error','结算失败','交易上链但执行失败，请稍后重试')
+      // 交易失败：很可能是轮次已被 placeBet 自动推进，刷新后检查
+      await fetchRound()
+      if(bettingOpen){
+        toast('success','新一轮已自动开启','有人下注时合约已自动结算并开启新轮')
+        btn.classList.add('hidden')
+      } else {
+        toast('error','结算失败','请稍后重试')
+        btn.disabled = false
+        btn.textContent = '触发结算'
+      }
     } else {
       toast('success','结算完成，新一轮已自动开启')
       btn.classList.add('hidden')
@@ -1036,11 +1043,22 @@ async function triggerSettle(){
   } catch(e){
     const msg = (e.reason ?? e.shortMessage ?? e.message ?? '')
     const low = msg.toLowerCase()
-    if(!low.includes('reject') && !low.includes('denied')){
-      toast('error','结算失败', msg.slice(0,200))
+    if(low.includes('reject') || low.includes('denied')){
+      btn.disabled = false
+      btn.textContent = '触发结算'
+      return
     }
-    btn.disabled = false
-    btn.textContent = '触发结算'
+    // 任何失败都先刷新轮次，可能已经自动推进了
+    await fetchRound()
+    if(bettingOpen){
+      toast('success','新一轮已自动开启','合约已自动结算')
+      btn.classList.add('hidden')
+      if(address) loadMyBets()
+    } else {
+      toast('error','结算失败', msg.slice(0,200))
+      btn.disabled = false
+      btn.textContent = '触发结算'
+    }
   }
 }
 
@@ -1055,7 +1073,13 @@ async function triggerSettleForRecord(slot, btn){
     toast('info','结算交易已发送','等待上链确认...')
     const receipt = await tx.wait()
     if(receipt.status === 0){
-      toast('error','结算失败','交易上链但执行失败，请稍后重试')
+      // 失败时刷新，判断是否已自动推进新轮
+      await fetchRound()
+      toast(bettingOpen ? 'success' : 'error',
+        bettingOpen ? '新一轮已自动开启' : '结算失败',
+        bettingOpen ? '合约已自动结算并开启新轮' : '请稍后重试')
+      if(bettingOpen) loadMyBets()
+      else { btn.disabled = false; btn.textContent = '触发结算' }
     } else {
       toast('success','结算完成')
       fetchRound()
@@ -1064,11 +1088,18 @@ async function triggerSettleForRecord(slot, btn){
   } catch(e){
     const msg = (e.reason ?? e.shortMessage ?? e.message ?? '')
     const low = msg.toLowerCase()
-    if(!low.includes('reject') && !low.includes('denied')){
-      toast('error','结算失败', msg.slice(0,200))
+    if(low.includes('reject') || low.includes('denied')){
+      btn.disabled = false; btn.textContent = '触发结算'; return
     }
-    btn.disabled = false
-    btn.textContent = '触发结算'
+    await fetchRound()
+    if(bettingOpen){
+      toast('success','新一轮已自动开启')
+      loadMyBets()
+    } else {
+      toast('error','结算失败', msg.slice(0,200))
+      btn.disabled = false
+      btn.textContent = '触发结算'
+    }
   }
 }
 
