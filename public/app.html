@@ -367,8 +367,8 @@ const PRED_ABI = [
   'function rounds(uint8 slot, uint256 rid) view returns (uint256 startTime, uint256 endTime, uint256 openPrice, uint256 closePrice, uint256 openCumPrice, uint256 openCumTimestamp, uint256 totalUpShares, uint256 totalDownShares, uint256 bnbPool, uint256 sharePriceLocked, bool settled, bool upWon, bool voided)',
   'function bets(uint8 slot, uint256 roundId, address user) view returns (uint16 shares, bool isUp, bool claimed)',
   'function currentRoundId(uint256 index) view returns (uint256)',
-  'function placeBet(uint8 slot, bool isUp, uint16 shares) nonpayable',
-  'function claim(uint8 slot, uint256 rid) nonpayable',
+  'function placeBet(uint8 slot, bool isUp, uint16 shares)',
+  'function claim(uint8 slot, uint256 rid)',
   'function sharePrice() view returns (uint256)',
 ]
 const TOKEN_ABI = [
@@ -456,7 +456,7 @@ function fmtCountdown(secs){
 
 // ─────────────────────────────────────────────
 //  TOAST
-// ────────────────────────────────────────────��
+// ────────────────────────────────────────────���
 function toast(type,title,msg=''){
   const c=document.getElementById('toast-container')
   const el=document.createElement('div')
