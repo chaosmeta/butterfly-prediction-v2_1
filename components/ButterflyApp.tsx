@@ -43,6 +43,7 @@ export default function ButterflyApp() {
     bets, loading: betsLoading, claiming,
     fetchBets, claimRounds,
   } = useMyBets(wallet.address, wallet.signer, slot, round?.roundId ?? null)
+  // useMyBets 第三个参数 currentSlot 仍保留，第四个为当前 roundId（触发重新查询）
 
   // ── Toast helpers ─────────────────────────────────────────────────
   const addToast = useCallback((t: Omit<ToastData, 'id'>) => {

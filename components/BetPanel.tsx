@@ -4,7 +4,7 @@ import { useState, useCallback } from 'react'
 import { ethers } from 'ethers'
 import type { RoundData } from '@/hooks/useRound'
 import type { SlotId } from '@/lib/config'
-import { SHARES_MIN, SHARES_MAX, SHARE_PRICE_TOKENS, PREDICTION_ADDRESS } from '@/lib/config'
+import { SHARES_MIN, SHARES_MAX, DEFAULT_SHARE_PRICE_ETH, PREDICTION_ADDRESS } from '@/lib/config'
 import { formatToken, calcOdds, calcEstReturn } from '@/lib/format'
 import { getSignerToken, getSignerPrediction } from '@/lib/web3'
 import { cn } from '@/lib/utils'
@@ -55,20 +55,18 @@ export default function BetPanel({ slot, round, signer, address, onToast, onRefr
 
       // 0a. 读取代币精度，确保金额计算与合约一致
       const decimals: number = await tokenContract.decimals()
-      console.log('[v0] token decimals:', decimals)
 
       // 0b. 计算本次下注所需代币数量
-      // 优先用链上 sharePriceLocked（合约实际扣款金额），未启动时用兜底值
+      // 优先用链上 sharePriceLocked（合约实际扣款金额），未启动时用合约默认值兜底
+      // 合约默认 sharePrice = 500_000 ether（18 位精度）
       const sharePriceLocked: bigint = round?.sharePriceLocked ?? 0n
       const pricePerShare = sharePriceLocked > 0n
         ? sharePriceLocked
-        : ethers.parseUnits(String(SHARE_PRICE_TOKENS), decimals)
+        : ethers.parseUnits(String(DEFAULT_SHARE_PRICE_ETH), decimals)
       const totalCost = pricePerShare * BigInt(shares)
-      console.log('[v0] pricePerShare:', pricePerShare.toString(), 'totalCost:', totalCost.toString())
 
       // 0c. 检查余额是否充足，提前给出明确错误
       const balance: bigint = await tokenContract.balanceOf(address)
-      console.log('[v0] balance:', balance.toString())
       if (balance < totalCost) {
         const need = ethers.formatUnits(totalCost, decimals)
         const have = ethers.formatUnits(balance, decimals)
@@ -82,13 +80,11 @@ export default function BetPanel({ slot, round, signer, address, onToast, onRefr
 
       // 1. 检查 allowance，不足则 approve MaxUint256（无限授权），避免精度计算误差
       const allowance: bigint = await tokenContract.allowance(address, PREDICTION_ADDRESS)
-      console.log('[v0] allowance:', allowance.toString())
       if (allowance < totalCost) {
         setStep('approving')
         onToast({ type: 'info', title: '等待授权', message: '请在钱包中确认代币授权…' })
         const approveTx = await tokenContract.approve(PREDICTION_ADDRESS, ethers.MaxUint256)
         await approveTx.wait()
-        console.log('[v0] approve confirmed')
         onToast({ type: 'success', title: '授权成功' })
       }
 
@@ -162,7 +158,7 @@ export default function BetPanel({ slot, round, signer, address, onToast, onRefr
           <label className="text-xs text-muted">份数</label>
           {/* 右侧实时显示所需代币数 */}
           <span className="text-xs text-primary font-medium">
-            需 {(shares * SHARE_PRICE_TOKENS).toLocaleString('zh-CN')} BFLY
+            需 {(shares * DEFAULT_SHARE_PRICE_ETH).toLocaleString('zh-CN')} BFLY
           </span>
         </div>
         <div className="flex items-center gap-3">
@@ -199,7 +195,7 @@ export default function BetPanel({ slot, round, signer, address, onToast, onRefr
             <span className="text-foreground font-medium">
               {round && round.sharePriceLocked > 0n
                 ? `${formatToken(round.sharePriceLocked)} BFLY`
-                : `${SHARE_PRICE_TOKENS.toLocaleString('zh-CN')} BFLY`}
+                : `${DEFAULT_SHARE_PRICE_ETH.toLocaleString('zh-CN')} BFLY`}
             </span>
           </div>
           <div className="flex justify-between">
@@ -207,7 +203,7 @@ export default function BetPanel({ slot, round, signer, address, onToast, onRefr
             <span className="text-foreground font-medium">
               {round && round.sharePriceLocked > 0n
                 ? `${formatToken(round.sharePriceLocked * BigInt(shares))} BFLY`
-                : `${(shares * SHARE_PRICE_TOKENS).toLocaleString('zh-CN')} BFLY`}
+                : `${(shares * DEFAULT_SHARE_PRICE_ETH).toLocaleString('zh-CN')} BFLY`}
             </span>
           </div>
           {direction && (

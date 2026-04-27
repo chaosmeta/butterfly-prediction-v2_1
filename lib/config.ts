@@ -3,27 +3,27 @@ export const PREDICTION_ADDRESS = '0x14fb19D46896198be280296045DDcD419C1FFA67'
 export const TOKEN_ADDRESS       = '0x7ba7e046c9d062839611d4ca17909a2097567777'
 
 // ─── 网络 ──────────────────────────────────────────────────────────
-export const BSC_CHAIN_ID    = 56
-export const BSC_RPC_URL     = 'https://bsc-dataseed1.binance.org'
-export const BSC_EXPLORER    = 'https://bscscan.com'
-export const BSC_CHAIN_NAME  = 'BNB Smart Chain'
-export const BSC_CURRENCY    = { name: 'BNB', symbol: 'BNB', decimals: 18 }
+export const BSC_CHAIN_ID = 56
+export const BSC_RPC      = 'https://bsc-dataseed1.binance.org'
+export const BSC_CHAIN_CONFIG = {
+  chainId:           `0x${BSC_CHAIN_ID.toString(16)}`,
+  chainName:         'BNB Smart Chain',
+  nativeCurrency:    { name: 'BNB', symbol: 'BNB', decimals: 18 },
+  rpcUrls:           [BSC_RPC],
+  blockExplorerUrls: ['https://bscscan.com'],
+}
 
-// ─── WalletConnect ─────────────────────────────────────────────────
-// 在 https://cloud.walletconnect.com 申请后替换
-export const WC_PROJECT_ID = 'YOUR_WALLETCONNECT_PROJECT_ID'
-
-// ─── 时间档 ────────────────────────────────────────────────────────
+// ─── 时间档（与合约 SLOT_DURATIONS / BETTING_CLOSE_BEFORE 完全对应）──
 export const SLOTS = [
-  { id: 0, label: '20分钟', seconds: 20 * 60 },
-  { id: 1, label: '1小时',  seconds: 60 * 60 },
-  { id: 2, label: '24小时', seconds: 24 * 60 * 60 },
+  { label: '20 分钟', duration: 20 * 60,   bettingCloseBefore: 2 * 60  },
+  { label: '1 小时',  duration: 60 * 60,   bettingCloseBefore: 5 * 60  },
+  { label: '24 小时', duration: 24 * 3600, bettingCloseBefore: 60 * 60 },
 ] as const
 
 export type SlotId = 0 | 1 | 2
 
-// ─── 份数配置 ──────────────────────────────────────────────────────
-export const SHARES_MIN  = 1
-export const SHARES_MAX  = 100
-// 每份代币数量（UI 展示用，合约以 sharePriceLocked 为准；未启动时用此兜底）
-export const SHARE_PRICE_TOKENS = 500_000   // 50 万枚 BFLY / 份
+// ─── 份数配置（合约常量）──────────────────────────────────────────
+// MAX_SHARES_PER_BET = 20，sharePrice = 500_000 ether（18 位精度）
+export const SHARES_MIN              = 1
+export const SHARES_MAX              = 20
+export const DEFAULT_SHARE_PRICE_ETH = 500_000  // 单位：ether（即 500000 * 1e18 wei）

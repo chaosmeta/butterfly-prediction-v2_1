@@ -15,14 +15,16 @@ export function formatToken(raw: bigint | string, dp = 4): string {
 }
 
 /**
- * 格式化价格（8 位小数 Chainlink 格式）
- * @param raw  bigint
+ * 格式化价格（合约内部使用 1e18 精度的 BNB/BFLY spot 价）
+ * 合约 getSpotPrice 返回 BFLY 以 BNB 计价，单位 1e18
+ * 例：0.000001 BNB/BFLY → raw ≈ 1e12
  */
 export function formatPrice(raw: bigint): string {
   if (!raw || raw === 0n) return '—'
   try {
-    const val = Number(raw) / 1e8
-    return '$' + val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const val = parseFloat(ethers.formatEther(raw))
+    if (val < 0.000001) return val.toExponential(4) + ' BNB'
+    return val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 8 }) + ' BNB'
   } catch {
     return '—'
   }

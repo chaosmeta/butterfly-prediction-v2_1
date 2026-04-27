@@ -29,13 +29,13 @@ export default function RoundPanel({ slot, onSlot, round, loading, error }: Prop
     <div className="glass p-5 sm:p-6 w-full">
       {/* 时间档 Tabs */}
       <div className="flex gap-2 mb-6" role="tablist" aria-label="时间档选择">
-        {SLOTS.map((s) => (
+        {SLOTS.map((s, i) => (
           <button
-            key={s.id}
+            key={i}
             role="tab"
-            aria-selected={slot === s.id}
-            onClick={() => onSlot(s.id as SlotId)}
-            className={cn('slot-tab', slot === s.id && 'active')}
+            aria-selected={slot === i}
+            onClick={() => onSlot(i as SlotId)}
+            className={cn('slot-tab', slot === i && 'active')}
           >
             {s.label}
           </button>
