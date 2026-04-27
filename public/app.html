@@ -232,9 +232,10 @@
             <div class="ratio-up" id="ratio-up" style="width:50%"></div>
             <div class="ratio-down"></div>
           </div>
-          <div class="ratio-labels mt4" style="color:var(--fg3);font-size:.72rem">
-            <span id="up-shares">0 份</span>
-            <span id="down-shares">0 份</span>
+          <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:.72rem;color:var(--fg3)">
+            <span>涨 <span id="up-shares" style="color:var(--up);font-weight:600">0 份</span></span>
+            <span id="total-shares" style="color:var(--fg2)">共 0 份</span>
+            <span>跌 <span id="down-shares" style="color:var(--down);font-weight:600">0 份</span></span>
           </div>
         </div>
       </div>
@@ -757,14 +758,15 @@ async function fetchRound(){
     document.getElementById('stat-pool').textContent    = fmtBnb(bnbPool)
     document.getElementById('stat-price').textContent   = fmtToken(sharePriceLocked, tokenDecimals)+' BFLY'
 
-    // Ratio
+    // Ratio + 统计
     const total = Number(upShares) + Number(downShares)
     const upPct = total > 0 ? Math.round(Number(upShares) / total * 100) : 50
     document.getElementById('ratio-up').style.width    = upPct + '%'
     document.getElementById('up-label').textContent    = `涨 ${upPct}%`
     document.getElementById('down-label').textContent  = `跌 ${100 - upPct}%`
-    document.getElementById('up-shares').textContent   = upShares + ' 份'
-    document.getElementById('down-shares').textContent = downShares + ' 份'
+    document.getElementById('up-shares').textContent   = Number(upShares) + ' 份'
+    document.getElementById('down-shares').textContent = Number(downShares) + ' 份'
+    document.getElementById('total-shares').textContent = `共 ${total} 份`
 
     // Countdown
     if(countdownTimer) clearInterval(countdownTimer)
@@ -797,10 +799,15 @@ async function fetchRound(){
   }
 }
 
-// Poll every 10s
+// 动态轮询：投注中 10s，已关闭/等待结算 3s（快速感知新轮开始）
 function startPoll(){
+  if(pollTimer) clearInterval(pollTimer)
   fetchRound()
-  pollTimer = setInterval(fetchRound, 10000)
+  pollTimer = setInterval(async () => {
+    await fetchRound()
+    // 重新设置轮询间隔：关闭中用 3s，投注中用 10s
+    startPoll()
+  }, bettingOpen || notStarted ? 10000 : 3000)
 }
 
 // ─────────────────────────────────────────────
@@ -901,20 +908,24 @@ async function loadMyBets(){
   list.innerHTML=`<div style="text-align:center;color:var(--fg3);padding:16px;font-size:.875rem">加载中...</div>`
 
   const records = []
+  const now = Math.floor(Date.now() / 1000)
   try{
     const c = getReadPred()
     for(let s=0;s<3;s++){
       const rid = await c.currentRoundId(BigInt(s))
-      const from = rid > 15n ? rid-15n : 0n
+      const from = rid > 20n ? rid - 20n : 0n
       for(let id=rid; id>=from; id--){
         try{
           const bet = await c.bets(s, id, address)
-          if(Number(bet.shares)===0) continue
+          // ethers v6 Result 用索引访问：[0]=shares [1]=isUp [2]=claimed
+          if(Number(bet[0]) === 0) continue
           const round = await c.rounds(s, id)
+          // rounds 返回：[0]startTime [1]endTime ... [10]settled [11]upWon [12]voided
           records.push({
-            slot:s, roundId:id,
-            shares:Number(bet.shares), isUp:bet.isUp, claimed:bet.claimed,
-            settled:round.settled, upWon:round.upWon, voided:round.voided,
+            slot: s, roundId: id,
+            shares: Number(bet[0]), isUp: bet[1], claimed: bet[2],
+            endTime: Number(round[1]),
+            settled: round[10], upWon: round[11], voided: round[12],
           })
         } catch{}
       }
@@ -929,26 +940,50 @@ async function loadMyBets(){
     return
   }
 
-  records.sort((a,b)=>a.slot!==b.slot?a.slot-b.slot:Number(b.roundId-a.roundId))
-  list.innerHTML = records.map(r=>{
-    const isWinner = r.settled&&!r.voided&&(r.isUp===r.upWon)
-    const claimable = isWinner&&!r.claimed
-    let badge='',badgeClass='badge-pending'
-    if(r.voided)          { badge='已作废'; badgeClass='badge-void' }
-    else if(!r.settled)   { badge='进行中'; badgeClass='badge-pending' }
-    else if(isWinner)     { badge='赢了';   badgeClass='badge-win' }
-    else                  { badge='输了';   badgeClass='badge-lose' }
+  records.sort((a,b) => a.slot !== b.slot ? a.slot - b.slot : Number(b.roundId - a.roundId))
+
+  list.innerHTML = records.map(r => {
+    const isWinner   = r.settled && !r.voided && (r.isUp === r.upWon)
+    const isLoser    = r.settled && !r.voided && (r.isUp !== r.upWon)
+    const timeExpired = !r.settled && r.endTime > 0 && now > r.endTime
+    // 可以 claim 的条件：settled 且未领取（无论赢输，claim 都会退/发）
+    const claimable  = r.settled && !r.claimed && !r.voided
+
+    let badge = '', badgeClass = 'badge-pending', badgeNote = ''
+    if(r.voided){
+      badge = '已作废'; badgeClass = 'badge-void'
+    } else if(r.claimed){
+      badge = isWinner ? '已领奖' : '已退款'; badgeClass = isWinner ? 'badge-win' : 'badge-void'
+    } else if(r.settled && isWinner){
+      badge = '赢了'; badgeClass = 'badge-win'
+    } else if(r.settled && isLoser){
+      badge = '输了'; badgeClass = 'badge-lose'
+    } else if(timeExpired){
+      badge = '等待结算'; badgeClass = 'badge-pending'; badgeNote = '结算后可取回'
+    } else {
+      badge = '进行中'; badgeClass = 'badge-pending'
+    }
+
+    // 按钮文案：赢了 → 领取 BNB 奖励；输了 → 取回代币
+    let actionBtn = ''
+    if(claimable){
+      const btnLabel  = isWinner ? '领取 BNB 奖励' : '取回代币'
+      const btnClass  = isWinner ? 'btn-primary' : 'btn-outline'
+      actionBtn = `<button class="btn ${btnClass} btn-sm" onclick="claimReward(${r.slot},'${r.roundId}',this)">${btnLabel}</button>`
+    }
 
     return `<div class="record-item">
-      <div>
-        <div class="record-meta">${SLOT_LABELS[r.slot]} · #${r.roundId}</div>
-        <div style="display:flex;align-items:center;gap:6px">
+      <div style="flex:1;min-width:0">
+        <div class="record-meta">${SLOT_LABELS[r.slot]} · 轮次 #${r.roundId}</div>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:2px">
           <span class="record-dir ${r.isUp?'up':'down'}">${r.isUp?'▲ 涨':'▼ 跌'} ${r.shares} 份</span>
           <span class="badge ${badgeClass}">${badge}</span>
-          ${r.claimed?'<span style="font-size:.72rem;color:var(--fg3)">已领</span>':''}
+          ${badgeNote ? `<span style="font-size:.72rem;color:var(--fg3)">${badgeNote}</span>` : ''}
         </div>
+        ${isWinner && !r.claimed ? `<div style="font-size:.72rem;color:var(--up);margin-top:3px">赢得 BNB 奖励 + 代币退还</div>` : ''}
+        ${isLoser  && !r.claimed ? `<div style="font-size:.72rem;color:var(--fg3);margin-top:3px">代币将原额退还</div>` : ''}
       </div>
-      ${claimable?`<button class="btn btn-primary btn-sm" onclick="claimReward(${r.slot},'${r.roundId}',this)">领奖</button>`:''}
+      ${actionBtn}
     </div>`
   }).join('')
 }
