@@ -1,0 +1,2148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>蝴蝶预测 · Butterfly Prediction</title>
+<link rel="icon" type="image/png" href="./assets/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@300;400;500;700&family=Noto+Serif+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.0/dist/ethers.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.17.0/dist/index.umd.js"></script>
+<style>
+  /* ════════════════════════════════════════════════
+     蝴蝶预测 · Cosmic Starlight Theme
+     ════════════════════════════════════════════════ */
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    /* 取自 logo 的星空配色 */
+    --void:        #0a0612;            /* 最深紫黑 */
+    --space:       #14092a;            /* 深空紫 */
+    --nebula:      #1f0f3d;            /* 星云紫 */
+    --twilight:    #2a1851;            /* 暮光 */
+
+    --moonlight:   #f5e8d4;            /* 月白 / logo 中央高光 */
+    --starlight:   #e8d9ff;            /* 星光紫白 */
+    --silver:      #c8b9e8;            /* 银紫 */
+    --dim:         #8a7ca8;            /* 暗调 */
+
+    --aurora-blue: #6ec5e8;            /* 极光蓝 / 涨方 */
+    --aurora-blue-bright: #9ddef0;
+    --rose-pink:   #d670a8;            /* 玫瑰星云 / 跌方 */
+    --rose-pink-bright: #f098c5;
+
+    --gold:        #d4b264;            /* logo 标题金色 */
+    --gold-bright: #f0d489;
+    --gold-deep:   #8a6f30;
+
+    --line:        rgba(232, 217, 255, 0.12);
+    --line-warm:   rgba(212, 178, 100, 0.18);
+
+    /* Fonts */
+    --font-display: 'Cormorant Garamond', 'Noto Serif SC', serif;
+    --font-mono: 'JetBrains Mono', monospace;
+    --font-cn: 'Noto Serif SC', serif;
+  }
+
+  html, body {
+    background: var(--void);
+    color: var(--starlight);
+    font-family: var(--font-cn);
+    font-weight: 300;
+    line-height: 1.6;
+    overflow-x: hidden;
+    min-height: 100vh;
+  }
+
+  /* ─── Cosmic Background ─── */
+  body {
+    background:
+      radial-gradient(ellipse 90% 60% at 50% 0%, rgba(155, 126, 232, 0.15) 0%, transparent 70%),
+      radial-gradient(ellipse 60% 40% at 20% 30%, rgba(110, 197, 232, 0.08) 0%, transparent 70%),
+      radial-gradient(ellipse 60% 40% at 80% 60%, rgba(214, 112, 168, 0.08) 0%, transparent 70%),
+      radial-gradient(ellipse 100% 50% at 50% 100%, rgba(31, 15, 61, 0.6) 0%, transparent 70%),
+      var(--void);
+    background-attachment: fixed;
+    position: relative;
+  }
+
+  /* Star field — generated via box-shadow */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-image:
+      radial-gradient(1px 1px at 12% 23%, rgba(255,255,255,0.9), transparent),
+      radial-gradient(1px 1px at 27% 65%, rgba(232,217,255,0.7), transparent),
+      radial-gradient(1.5px 1.5px at 45% 15%, rgba(255,255,255,0.85), transparent),
+      radial-gradient(1px 1px at 67% 47%, rgba(200,185,232,0.6), transparent),
+      radial-gradient(1px 1px at 83% 88%, rgba(255,255,255,0.8), transparent),
+      radial-gradient(1px 1px at 7% 78%, rgba(232,217,255,0.5), transparent),
+      radial-gradient(1.5px 1.5px at 91% 24%, rgba(255,255,255,0.9), transparent),
+      radial-gradient(1px 1px at 36% 92%, rgba(200,185,232,0.7), transparent),
+      radial-gradient(1px 1px at 56% 7%, rgba(255,255,255,0.6), transparent),
+      radial-gradient(1px 1px at 73% 73%, rgba(232,217,255,0.55), transparent),
+      radial-gradient(1.5px 1.5px at 19% 41%, rgba(255,255,255,0.7), transparent),
+      radial-gradient(1px 1px at 60% 30%, rgba(110,197,232,0.6), transparent),
+      radial-gradient(1px 1px at 25% 85%, rgba(214,112,168,0.5), transparent),
+      radial-gradient(2px 2px at 88% 55%, rgba(255,255,255,0.8), transparent),
+      radial-gradient(1px 1px at 41% 60%, rgba(232,217,255,0.6), transparent);
+    background-size: 100% 100%;
+    opacity: 0.85;
+    animation: starsFade 8s ease-in-out infinite alternate;
+  }
+
+  @keyframes starsFade {
+    0%   { opacity: 0.7; }
+    100% { opacity: 1; }
+  }
+
+  /* Twinkling overlay */
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-image:
+      radial-gradient(2px 2px at 33% 33%, rgba(255,255,255,1), transparent 70%),
+      radial-gradient(2px 2px at 70% 80%, rgba(245,232,212,1), transparent 70%),
+      radial-gradient(1.5px 1.5px at 15% 50%, rgba(232,217,255,1), transparent 70%);
+    animation: twinkle 4s ease-in-out infinite alternate;
+  }
+
+  @keyframes twinkle {
+    0%, 100% { opacity: 0.3; }
+    50%      { opacity: 0.9; }
+  }
+
+  ::selection { background: var(--rose-pink); color: var(--void); }
+
+  /* ─── Layout ─── */
+  .container {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 32px;
+    position: relative;
+    z-index: 2;
+  }
+
+  /* ─── Nav ─── */
+  nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    background: rgba(10, 6, 18, 0.7);
+    border-bottom: 1px solid var(--line);
+    padding: 16px 0;
+  }
+
+  .nav-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    text-decoration: none;
+    color: var(--starlight);
+  }
+
+  .brand-mark {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    object-fit: cover;
+    box-shadow: 0 0 24px rgba(155, 126, 232, 0.5);
+    border: 1px solid rgba(232, 217, 255, 0.2);
+  }
+
+  .brand-text {
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--moonlight);
+  }
+
+  .brand-sub {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.3em;
+    color: var(--gold-bright);
+    text-transform: uppercase;
+    opacity: 0.85;
+  }
+
+  /* ─── Buttons ─── */
+  .btn {
+    font-family: var(--font-display);
+    font-size: 16px;
+    padding: 10px 28px;
+    border: 1px solid var(--silver);
+    background: transparent;
+    color: var(--starlight);
+    cursor: pointer;
+    letter-spacing: 0.08em;
+    transition: all 0.3s;
+    text-transform: uppercase;
+    font-weight: 500;
+    border-radius: 2px;
+  }
+
+  .btn:hover:not(:disabled) {
+    background: var(--starlight);
+    color: var(--void);
+    box-shadow: 0 0 24px rgba(232, 217, 255, 0.4);
+  }
+
+  .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  /* ─── Hero ─── */
+  .hero {
+    padding: 80px 0 60px;
+    text-align: center;
+    position: relative;
+  }
+
+  .hero-logo {
+    width: 220px;
+    height: 220px;
+    margin: 0 auto 32px;
+    border-radius: 50%;
+    object-fit: cover;
+    box-shadow:
+      0 0 60px rgba(155, 126, 232, 0.6),
+      0 0 120px rgba(110, 197, 232, 0.3),
+      inset 0 0 30px rgba(0,0,0,0.5);
+    animation: hero-float 6s ease-in-out infinite alternate, hero-glow 4s ease-in-out infinite alternate;
+  }
+
+  @keyframes hero-float {
+    0%   { transform: translateY(0); }
+    100% { transform: translateY(-12px); }
+  }
+
+  @keyframes hero-glow {
+    0%   { box-shadow: 0 0 60px rgba(155, 126, 232, 0.6), 0 0 120px rgba(110, 197, 232, 0.3); }
+    100% { box-shadow: 0 0 80px rgba(214, 112, 168, 0.7), 0 0 140px rgba(155, 126, 232, 0.5); }
+  }
+
+  .hero-eyebrow {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.4em;
+    text-transform: uppercase;
+    color: var(--gold-bright);
+    margin-bottom: 20px;
+    opacity: 0.9;
+  }
+
+  h1 {
+    font-family: var(--font-display);
+    font-size: clamp(40px, 6vw, 72px);
+    font-weight: 400;
+    line-height: 1.0;
+    letter-spacing: -0.02em;
+    margin-bottom: 12px;
+    color: var(--moonlight);
+    text-shadow: 0 0 40px rgba(245, 232, 212, 0.3);
+  }
+
+  h1 .accent {
+    font-style: italic;
+    background: linear-gradient(135deg, var(--rose-pink-bright) 0%, var(--gold-bright) 50%, var(--aurora-blue-bright) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    font-weight: 300;
+  }
+
+  h1 .cn {
+    font-family: var(--font-cn);
+    font-size: 0.45em;
+    font-weight: 400;
+    color: var(--silver);
+    display: block;
+    margin-top: 14px;
+    letter-spacing: 0.05em;
+  }
+
+  .hero-tagline {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-size: 20px;
+    color: var(--silver);
+    max-width: 640px;
+    margin: 24px auto 0;
+    line-height: 1.6;
+  }
+
+  /* ─── Glass panel base ─── */
+  .glass {
+    background: linear-gradient(135deg, rgba(31, 15, 61, 0.4) 0%, rgba(10, 6, 18, 0.6) 100%);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    border: 1px solid var(--line);
+    position: relative;
+  }
+
+  .glass::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0;
+    width: 28px; height: 28px;
+    border-top: 1px solid var(--gold-bright);
+    border-left: 1px solid var(--gold-bright);
+    opacity: 0.6;
+  }
+
+  .glass::after {
+    content: "";
+    position: absolute;
+    bottom: 0; right: 0;
+    width: 28px; height: 28px;
+    border-bottom: 1px solid var(--gold-bright);
+    border-right: 1px solid var(--gold-bright);
+    opacity: 0.6;
+  }
+
+  /* ─── Price Ticker ─── */
+  .price-ticker {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 32px;
+    padding: 28px;
+    margin: 40px 0;
+    flex-wrap: wrap;
+  }
+
+  .ticker-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .ticker-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-bottom: 8px;
+  }
+
+  .ticker-value {
+    font-family: var(--font-display);
+    font-size: 30px;
+    color: var(--moonlight);
+    font-weight: 500;
+    line-height: 1;
+    text-shadow: 0 0 20px rgba(245, 232, 212, 0.3);
+  }
+
+  /* ─── Slot tabs ─── */
+  .slot-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin: 24px 0 32px;
+  }
+
+  .slot-tab {
+    background: linear-gradient(135deg, rgba(31, 15, 61, 0.4) 0%, rgba(10, 6, 18, 0.6) 100%);
+    border: 1px solid var(--line);
+    padding: 28px 16px;
+    cursor: pointer;
+    transition: all 0.3s;
+    position: relative;
+    text-align: center;
+    border-radius: 4px;
+  }
+
+  .slot-tab:hover { border-color: var(--silver); }
+
+  .slot-tab.active {
+    background: linear-gradient(180deg, rgba(155, 126, 232, 0.15) 0%, rgba(31, 15, 61, 0.6) 100%);
+    border-color: var(--starlight);
+    box-shadow: 0 0 30px rgba(155, 126, 232, 0.3);
+  }
+
+  .slot-tab.active::before {
+    content: "";
+    position: absolute;
+    top: -1px; left: -1px; right: -1px;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, var(--gold-bright) 50%, transparent 100%);
+  }
+
+  .slot-tab-icon {
+    font-size: 24px;
+    margin-bottom: 8px;
+    display: block;
+    filter: drop-shadow(0 0 8px rgba(232, 217, 255, 0.5));
+  }
+
+  .slot-tab-name {
+    font-family: var(--font-display);
+    font-size: 24px;
+    color: var(--starlight);
+    font-weight: 500;
+  }
+
+  .slot-tab.active .slot-tab-name {
+    color: var(--moonlight);
+  }
+
+  .slot-tab-sub {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--dim);
+    margin-top: 4px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+
+  /* ─── Round panel ─── */
+  .round-panel {
+    padding: 36px;
+    margin-bottom: 24px;
+    border-radius: 4px;
+  }
+
+  .round-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 28px;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+
+  .round-title {
+    font-family: var(--font-display);
+    font-size: 28px;
+    font-weight: 500;
+    color: var(--moonlight);
+  }
+
+  .round-id {
+    font-family: var(--font-mono);
+    color: var(--gold-bright);
+    font-size: 12px;
+    letter-spacing: 0.15em;
+  }
+
+  .countdown {
+    font-family: var(--font-mono);
+    font-size: 36px;
+    color: var(--moonlight);
+    letter-spacing: 0.05em;
+    text-shadow: 0 0 20px rgba(245, 232, 212, 0.4);
+  }
+
+  .countdown-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: var(--dim);
+    text-transform: uppercase;
+  }
+
+  /* ─── Pool & balance ─── */
+  .pool-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    padding: 20px 0;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 28px;
+  }
+
+  .pool-item { text-align: center; }
+
+  .pool-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: var(--dim);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+
+  .pool-value {
+    font-family: var(--font-display);
+    font-size: 24px;
+    color: var(--starlight);
+  }
+
+  .pool-value.gold { color: var(--gold-bright); text-shadow: 0 0 16px rgba(212, 178, 100, 0.4); }
+
+  /* ─── Up/Down balance bars ─── */
+  .balance-bar { margin-bottom: 32px; }
+
+  .balance-bar-label {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+
+  .bar-up   { color: var(--aurora-blue-bright); }
+  .bar-down { color: var(--rose-pink-bright); }
+
+  .balance-bar-track {
+    height: 14px;
+    display: flex;
+    background: var(--void);
+    border: 1px solid var(--line);
+    overflow: hidden;
+    border-radius: 7px;
+  }
+
+  .balance-fill-up {
+    background: linear-gradient(90deg, var(--aurora-blue-bright), var(--aurora-blue));
+    transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: inset 0 0 12px rgba(255,255,255,0.2);
+  }
+
+  .balance-fill-down {
+    background: linear-gradient(270deg, var(--rose-pink-bright), var(--rose-pink));
+    transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: inset 0 0 12px rgba(255,255,255,0.2);
+  }
+
+  /* ─── Bet buttons ─── */
+  .bet-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+
+  .bet-card {
+    background: rgba(10, 6, 18, 0.5);
+    border: 2px solid var(--line);
+    padding: 32px 20px;
+    cursor: pointer;
+    transition: all 0.3s;
+    text-align: center;
+    position: relative;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .bet-card.up { border-color: rgba(110, 197, 232, 0.3); }
+  .bet-card.up:hover, .bet-card.up.active {
+    border-color: var(--aurora-blue);
+    background: linear-gradient(180deg, rgba(110, 197, 232, 0.08) 0%, rgba(110, 197, 232, 0.18) 100%);
+    box-shadow: 0 0 40px rgba(110, 197, 232, 0.3);
+  }
+
+  .bet-card.down { border-color: rgba(214, 112, 168, 0.3); }
+  .bet-card.down:hover, .bet-card.down.active {
+    border-color: var(--rose-pink);
+    background: linear-gradient(180deg, rgba(214, 112, 168, 0.08) 0%, rgba(214, 112, 168, 0.18) 100%);
+    box-shadow: 0 0 40px rgba(214, 112, 168, 0.3);
+  }
+
+  .bet-icon {
+    font-size: 44px;
+    margin-bottom: 14px;
+    display: block;
+    filter: drop-shadow(0 0 12px rgba(232, 217, 255, 0.4));
+  }
+
+  .bet-card.up .bet-icon   { filter: drop-shadow(0 0 12px var(--aurora-blue-bright)); }
+  .bet-card.down .bet-icon { filter: drop-shadow(0 0 12px var(--rose-pink-bright)); }
+
+  .bet-direction {
+    font-family: var(--font-display);
+    font-size: 30px;
+    font-weight: 500;
+    margin-bottom: 8px;
+  }
+
+  .bet-card.up .bet-direction   { color: var(--aurora-blue-bright); }
+  .bet-card.down .bet-direction { color: var(--rose-pink-bright); }
+
+  .bet-odds {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--silver);
+    letter-spacing: 0.05em;
+  }
+
+  .bet-payout {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    color: var(--gold-bright);
+    margin-top: 8px;
+    text-shadow: 0 0 12px rgba(212, 178, 100, 0.3);
+  }
+
+  /* ─── Shares selector ─── */
+  .shares-control { margin-bottom: 28px; }
+
+  .shares-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-bottom: 14px;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .shares-cost { color: var(--gold-bright); }
+
+  .shares-stepper {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    border: 1px solid var(--line);
+    background: var(--void);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .shares-btn {
+    background: transparent;
+    border: none;
+    color: var(--starlight);
+    font-family: var(--font-mono);
+    font-size: 24px;
+    width: 60px;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+
+  .shares-btn:hover:not(:disabled) {
+    background: rgba(232, 217, 255, 0.08);
+  }
+
+  .shares-btn:disabled {
+    color: var(--dim);
+    cursor: not-allowed;
+  }
+
+  .shares-display {
+    flex: 1;
+    text-align: center;
+    padding: 14px;
+    font-family: var(--font-mono);
+    font-size: 24px;
+    color: var(--moonlight);
+    border-left: 1px solid var(--line);
+    border-right: 1px solid var(--line);
+  }
+
+  .shares-butterflies {
+    text-align: center;
+    margin-top: 14px;
+    font-size: 18px;
+    letter-spacing: 6px;
+    height: 28px;
+    overflow: hidden;
+    filter: drop-shadow(0 0 6px rgba(232, 217, 255, 0.4));
+  }
+
+  /* ─── Big action button ─── */
+  .btn-bet {
+    width: 100%;
+    padding: 22px;
+    font-size: 18px;
+    font-family: var(--font-display);
+    letter-spacing: 0.15em;
+    background: linear-gradient(135deg, var(--rose-pink) 0%, var(--gold) 50%, var(--aurora-blue) 100%);
+    color: var(--void);
+    border: none;
+    cursor: pointer;
+    transition: all 0.3s;
+    text-transform: uppercase;
+    font-weight: 700;
+    border-radius: 4px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .btn-bet::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(255,255,255,0.2) 0%, transparent 50%, rgba(255,255,255,0.2) 100%);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  .btn-bet:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow:
+      0 12px 40px rgba(214, 112, 168, 0.5),
+      0 0 80px rgba(155, 126, 232, 0.4);
+  }
+
+  .btn-bet:hover:not(:disabled)::before { opacity: 1; }
+
+  .btn-bet:disabled {
+    background: linear-gradient(135deg, var(--dim) 0%, var(--silver) 100%);
+    color: var(--void);
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* ─── My bets ─── */
+  .my-bets { margin-top: 60px; }
+
+  .section-num {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--gold-bright);
+    letter-spacing: 0.3em;
+    margin-bottom: 12px;
+  }
+
+  h2 {
+    font-family: var(--font-display);
+    font-size: clamp(32px, 4vw, 48px);
+    font-weight: 400;
+    margin-bottom: 32px;
+    color: var(--moonlight);
+  }
+
+  h2 em {
+    background: linear-gradient(135deg, var(--rose-pink-bright) 0%, var(--aurora-blue-bright) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    font-weight: 300;
+  }
+
+  .bet-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto auto;
+    gap: 24px;
+    align-items: center;
+    padding: 20px 24px;
+    background: linear-gradient(135deg, rgba(31, 15, 61, 0.4) 0%, rgba(10, 6, 18, 0.6) 100%);
+    border: 1px solid var(--line);
+    margin-bottom: 8px;
+    border-radius: 4px;
+    backdrop-filter: blur(10px);
+  }
+
+  .bet-row-slot {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--gold-bright);
+    letter-spacing: 0.15em;
+  }
+
+  .bet-row-direction {
+    font-family: var(--font-display);
+    font-size: 22px;
+  }
+
+  .bet-row-direction.up   { color: var(--aurora-blue-bright); }
+  .bet-row-direction.down { color: var(--rose-pink-bright); }
+
+  .bet-row-shares {
+    font-family: var(--font-mono);
+    color: var(--silver);
+  }
+
+  .bet-row-status {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 4px 12px;
+    border: 1px solid;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    border-radius: 2px;
+  }
+
+  .status-pending { border-color: var(--gold-bright); color: var(--gold-bright); }
+  .status-won     { border-color: var(--aurora-blue); color: var(--aurora-blue-bright); background: rgba(110, 197, 232, 0.1); }
+  .status-lost    { border-color: var(--rose-pink); color: var(--rose-pink-bright); }
+  .status-claimed { border-color: var(--dim); color: var(--dim); opacity: 0.5; }
+  .status-voided  { border-color: var(--dim); color: var(--silver); }
+
+  .bet-row .btn { padding: 6px 16px; font-size: 13px; }
+
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--dim);
+    font-family: var(--font-display);
+    font-style: italic;
+    font-size: 18px;
+  }
+
+  /* ─── How it works ─── */
+  .how {
+    padding: 80px 0;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    margin: 80px 0;
+    position: relative;
+  }
+
+  .how::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at top, rgba(155, 126, 232, 0.06), transparent 70%);
+    pointer-events: none;
+  }
+
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+    margin-top: 48px;
+    position: relative;
+  }
+
+  .step {
+    padding: 24px 20px;
+    border-right: 1px solid var(--line);
+  }
+
+  .step:last-child { border-right: none; }
+
+  .step-num {
+    font-family: var(--font-display);
+    font-size: 64px;
+    font-style: italic;
+    line-height: 1;
+    background: linear-gradient(135deg, var(--rose-pink-bright) 0%, var(--gold-bright) 50%, var(--aurora-blue-bright) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    opacity: 0.7;
+    margin-bottom: 16px;
+  }
+
+  .step-title {
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 500;
+    margin-bottom: 8px;
+    color: var(--moonlight);
+  }
+
+  .step-desc {
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--silver);
+  }
+
+  /* ─── Footer ─── */
+  footer {
+    padding: 60px 0 30px;
+    border-top: 1px solid var(--line);
+    text-align: center;
+  }
+
+  .footer-tagline {
+    font-family: var(--font-display);
+    font-style: italic;
+    color: var(--silver);
+    margin-bottom: 16px;
+    font-size: 18px;
+  }
+
+  .footer-bottom {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--dim);
+    letter-spacing: 0.1em;
+  }
+
+  /* ─── Wallet Picker Modal ─── */
+  .wallet-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 6, 18, 0.75);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 300;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    animation: fadeIn 0.2s ease;
+  }
+
+  .wallet-modal-backdrop.open { display: flex; }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  .wallet-modal {
+    width: 100%;
+    max-width: 420px;
+    background: linear-gradient(135deg, rgba(31, 15, 61, 0.96) 0%, rgba(10, 6, 18, 0.98) 100%);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--starlight);
+    border-radius: 8px;
+    padding: 24px;
+    position: relative;
+    box-shadow:
+      0 20px 60px rgba(0, 0, 0, 0.7),
+      0 0 80px rgba(155, 126, 232, 0.3);
+    animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  @keyframes slideUp {
+    from { transform: translateY(40px); opacity: 0; }
+    to   { transform: translateY(0); opacity: 1; }
+  }
+
+  .wallet-modal::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0;
+    width: 28px; height: 28px;
+    border-top: 1px solid var(--gold-bright);
+    border-left: 1px solid var(--gold-bright);
+    opacity: 0.6;
+    border-top-left-radius: 8px;
+  }
+
+  .wallet-modal::after {
+    content: "";
+    position: absolute;
+    bottom: 0; right: 0;
+    width: 28px; height: 28px;
+    border-bottom: 1px solid var(--gold-bright);
+    border-right: 1px solid var(--gold-bright);
+    opacity: 0.6;
+    border-bottom-right-radius: 8px;
+  }
+
+  .wallet-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .wallet-modal-title {
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 500;
+    color: var(--moonlight);
+  }
+
+  .wallet-modal-sub {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-top: 4px;
+  }
+
+  .wallet-modal-close {
+    background: none;
+    border: none;
+    color: var(--silver);
+    font-size: 22px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: all 0.2s;
+  }
+
+  .wallet-modal-close:hover {
+    background: rgba(232, 217, 255, 0.1);
+    color: var(--moonlight);
+  }
+
+  .wallet-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+
+  .wallet-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    background: rgba(20, 9, 42, 0.5);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: left;
+    font-family: var(--font-cn);
+    color: var(--starlight);
+    width: 100%;
+  }
+
+  .wallet-item:hover {
+    background: rgba(155, 126, 232, 0.12);
+    border-color: var(--silver);
+    transform: translateX(2px);
+  }
+
+  .wallet-item-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    object-fit: cover;
+    background: rgba(0, 0, 0, 0.3);
+    flex-shrink: 0;
+  }
+
+  .wallet-item-icon-placeholder {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, var(--rose-pink) 0%, var(--aurora-blue) 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+
+  .wallet-item-name {
+    font-size: 15px;
+    font-weight: 500;
+    flex: 1;
+    color: var(--moonlight);
+  }
+
+  .wallet-item-tag {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--gold-bright);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    opacity: 0.85;
+  }
+
+  .wallet-empty {
+    text-align: center;
+    padding: 32px 16px;
+    color: var(--dim);
+    font-family: var(--font-display);
+    font-style: italic;
+  }
+
+  .wallet-modal-footer {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--dim);
+    letter-spacing: 0.1em;
+  }
+
+  .wallet-modal-footer a {
+    color: var(--silver);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--silver);
+  }
+
+  /* WalletConnect official QR modal — match our theme */
+  wcm-modal, w3m-modal {
+    --wcm-z-index: 400 !important;
+    --wcm-accent-color: var(--rose-pink) !important;
+  }
+
+  /* ─── Toast ─── */
+  .toast-container {
+    position: fixed;
+    bottom: 32px;
+    right: 32px;
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .toast {
+    background: linear-gradient(135deg, rgba(31, 15, 61, 0.95) 0%, rgba(10, 6, 18, 0.95) 100%);
+    backdrop-filter: blur(16px);
+    border: 1px solid var(--starlight);
+    padding: 16px 22px;
+    color: var(--moonlight);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    max-width: 360px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6), 0 0 30px rgba(155, 126, 232, 0.3);
+    animation: slideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    border-radius: 4px;
+  }
+
+  .toast.success { border-color: var(--aurora-blue); box-shadow: 0 10px 40px rgba(0,0,0,0.6), 0 0 30px rgba(110, 197, 232, 0.3); }
+  .toast.error   { border-color: var(--rose-pink); box-shadow: 0 10px 40px rgba(0,0,0,0.6), 0 0 30px rgba(214, 112, 168, 0.3); }
+
+  @keyframes slideIn {
+    from { transform: translateX(120%); opacity: 0; }
+    to   { transform: translateX(0); opacity: 1; }
+  }
+
+  /* ─── Responsive ─── */
+  @media (max-width: 768px) {
+    .container { padding: 0 16px; }
+    .hero { padding: 50px 0 40px; }
+    .hero-logo { width: 160px; height: 160px; margin-bottom: 24px; }
+    .price-ticker { gap: 16px; padding: 20px; }
+    .ticker-value { font-size: 22px; }
+    .pool-row { grid-template-columns: 1fr 1fr; }
+    .pool-row .pool-item:last-child { grid-column: 1/-1; }
+    .bet-grid { grid-template-columns: 1fr; }
+    .steps { grid-template-columns: 1fr 1fr; }
+    .step { border-right: none; border-bottom: 1px solid var(--line); }
+    .bet-row { grid-template-columns: 1fr 1fr; gap: 12px; }
+    .bet-row-status { grid-column: 1/-1; }
+    .toast-container { left: 16px; right: 16px; bottom: 16px; }
+    .toast { max-width: none; }
+    .round-panel { padding: 24px 20px; }
+    .countdown { font-size: 28px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav>
+  <div class="container nav-inner">
+    <a href="#" class="brand">
+      <img src="./assets/logo.webp" alt="" class="brand-mark" onerror="this.src='./assets/logo.png'">
+      <div>
+        <div class="brand-text">蝴蝶预测</div>
+        <div class="brand-sub">Butterfly Prediction</div>
+      </div>
+    </a>
+    <button class="btn" id="connectBtn">连接钱包</button>
+  </div>
+</nav>
+
+<!-- Hero -->
+<header class="hero">
+  <div class="container">
+    <img src="./assets/logo.webp" alt="蝴蝶预测" class="hero-logo" onerror="this.src='./assets/logo.png'">
+    <div class="hero-eyebrow">A FLAP-Native Vault · 基于 Flap.sh 协议</div>
+    <h1>
+      Butterfly <span class="accent">Prediction</span>
+      <span class="cn">押 蝴蝶预测 · 猜涨跌 · 输不亏代币 · 赢瓜分 BNB</span>
+    </h1>
+    <p class="hero-tagline">
+      三档时间任选：20 分钟 · 1 小时 · 24 小时<br>
+      代币永远是你的，奖池来自税费 BNB
+    </p>
+  </div>
+</header>
+
+<!-- Price ticker -->
+<div class="container">
+  <div class="price-ticker glass">
+    <div class="ticker-item">
+      <div class="ticker-label">蝴蝶预测/BNB</div>
+      <div class="ticker-value" id="currentPrice">—</div>
+    </div>
+    <div class="ticker-item">
+      <div class="ticker-label">合约 BNB</div>
+      <div class="ticker-value" id="vaultBnb">—</div>
+    </div>
+    <div class="ticker-item">
+      <div class="ticker-label">累计销毁</div>
+      <div class="ticker-value" id="totalBurned">—</div>
+    </div>
+    <div class="ticker-item">
+      <div class="ticker-label">累计赢家奖金</div>
+      <div class="ticker-value" id="totalPaid">—</div>
+    </div>
+  </div>
+</div>
+
+<!-- Slot tabs -->
+<main class="container">
+
+  <div class="slot-tabs">
+    <div class="slot-tab active" data-slot="0">
+      <span class="slot-tab-icon">⚡</span>
+      <div class="slot-tab-name">20 分钟</div>
+      <div class="slot-tab-sub">FAST</div>
+    </div>
+    <div class="slot-tab" data-slot="1">
+      <span class="slot-tab-icon">🌙</span>
+      <div class="slot-tab-name">1 小时</div>
+      <div class="slot-tab-sub">STEADY</div>
+    </div>
+    <div class="slot-tab" data-slot="2">
+      <span class="slot-tab-icon">✨</span>
+      <div class="slot-tab-name">24 小时</div>
+      <div class="slot-tab-sub">DEEP</div>
+    </div>
+  </div>
+
+  <!-- Round panel -->
+  <div class="round-panel glass">
+    <div class="round-header">
+      <div>
+        <div class="round-title" id="roundTitle">当前轮次</div>
+        <div class="round-id" id="roundId">轮次 #—</div>
+      </div>
+      <div style="text-align:right;">
+        <div class="countdown-label">剩余时间</div>
+        <div class="countdown" id="countdown">--:--:--</div>
+      </div>
+    </div>
+
+    <div class="pool-row">
+      <div class="pool-item">
+        <div class="pool-label">开盘价</div>
+        <div class="pool-value" id="openPrice">—</div>
+      </div>
+      <div class="pool-item">
+        <div class="pool-label">奖池 BNB</div>
+        <div class="pool-value gold" id="poolBnb">—</div>
+      </div>
+      <div class="pool-item">
+        <div class="pool-label">每份 蝴蝶预测</div>
+        <div class="pool-value" id="sharePriceLocked">—</div>
+      </div>
+    </div>
+
+    <!-- Up/down balance bar -->
+    <div class="balance-bar">
+      <div class="balance-bar-label">
+        <span class="bar-up">🦋 涨方 <span id="upShares">0</span> 份</span>
+        <span class="bar-down"><span id="downShares">0</span> 份 跌方 🦋</span>
+      </div>
+      <div class="balance-bar-track">
+        <div class="balance-fill-up" id="fillUp" style="width:50%"></div>
+        <div class="balance-fill-down" id="fillDown" style="width:50%"></div>
+      </div>
+    </div>
+
+    <!-- Bet direction selector -->
+    <div class="bet-grid">
+      <div class="bet-card up" data-direction="up">
+        <span class="bet-icon">🦋</span>
+        <div class="bet-direction">押 涨</div>
+        <div class="bet-odds">赔率 <span id="oddsUp">—</span>x</div>
+        <div class="bet-payout">预期: <span id="payoutUp">—</span> BNB</div>
+      </div>
+      <div class="bet-card down" data-direction="down">
+        <span class="bet-icon">🦋</span>
+        <div class="bet-direction">押 跌</div>
+        <div class="bet-odds">赔率 <span id="oddsDown">—</span>x</div>
+        <div class="bet-payout">预期: <span id="payoutDown">—</span> BNB</div>
+      </div>
+    </div>
+
+    <!-- Shares stepper -->
+    <div class="shares-control">
+      <div class="shares-label">
+        <span>份数 (1-20)</span>
+        <span class="shares-cost" id="costLabel">需要 — 蝴蝶预测</span>
+      </div>
+      <div class="shares-stepper">
+        <button class="shares-btn" id="sharesMinus">−</button>
+        <div class="shares-display" id="sharesValue">5</div>
+        <button class="shares-btn" id="sharesPlus">+</button>
+      </div>
+      <div class="shares-butterflies" id="sharesButterflies"></div>
+    </div>
+
+    <button class="btn-bet" id="placeBetBtn" disabled>请选择方向</button>
+  </div>
+
+  <!-- My bets -->
+  <section class="my-bets">
+    <span class="section-num">/ MY BETS</span>
+    <h2>我的<em>下注</em></h2>
+    <div id="myBetsList">
+      <div class="empty-state">连接钱包后查看你的下注记录</div>
+    </div>
+  </section>
+
+</main>
+
+<!-- How it works -->
+<section class="how">
+  <div class="container">
+    <span class="section-num">/ HOW IT WORKS</span>
+    <h2>四步<em>完成</em>预测</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">i.</div>
+        <div class="step-title">选时间档</div>
+        <div class="step-desc">20 分钟 / 1 小时 / 24 小时。短档高频刺激，长档判断更准。</div>
+      </div>
+      <div class="step">
+        <div class="step-num">ii.</div>
+        <div class="step-title">选方向 + 份数</div>
+        <div class="step-desc">押涨或押跌，1 份 = 50 万 蝴蝶预测。最多 20 份。代币锁仓到结算。</div>
+      </div>
+      <div class="step">
+        <div class="step-num">iii.</div>
+        <div class="step-title">等待结算</div>
+        <div class="step-desc">合约自动取最后几分钟 TWAP 价对比开盘价，判断涨跌。</div>
+      </div>
+      <div class="step">
+        <div class="step-num">iv.</div>
+        <div class="step-title">领奖</div>
+        <div class="step-desc">代币 100% 返还，胜方按份数比例瓜分 70% 奖池。20% 滚下期，10% 烧毁。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div class="footer-tagline">"押的是代币 · 赢的是 BNB · 输的只是一个判断"</div>
+    <div class="footer-bottom">BUTTERFLY PREDICTION · A FLAP-NATIVE VAULT · NOT FINANCIAL ADVICE</div>
+  </div>
+</footer>
+
+<!-- Wallet Picker Modal -->
+<div class="wallet-modal-backdrop" id="walletModal">
+  <div class="wallet-modal" role="dialog" aria-labelledby="walletModalTitle">
+    <div class="wallet-modal-header">
+      <div>
+        <div class="wallet-modal-title" id="walletModalTitle">连接钱包</div>
+        <div class="wallet-modal-sub">Connect Wallet</div>
+      </div>
+      <button class="wallet-modal-close" id="walletModalClose" aria-label="关闭">✕</button>
+    </div>
+    <div class="wallet-list" id="walletList">
+      <!-- 动态填充 -->
+    </div>
+    <div class="wallet-modal-footer">
+      支持 EIP-6963 · WalletConnect v2
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- ═══════════════════════════════════════
+     JAVASCRIPT
+     ═══════════════════════════════════════ -->
+<script>
+// ─── Config ───
+const CONFIG = {
+  VAULT_ADDRESS: '0x14fb19D46896198be280296045DDcD419C1FFA67',
+  TOKEN_ADDRESS: '0x7ba7e046c9d062839611d4ca17909a2097567777', // 待定 — flap.sh 创建代币后填这里
+  CHAIN_ID: 56,
+  RPC_URL: 'https://bsc-dataseed.binance.org/',
+};
+
+const VAULT_ABI = [
+  // ─── User actions ───
+  'function placeBet(uint8 slot, bool isUp, uint16 shares)',
+  'function claim(uint8 slot, uint256 rid)',
+  'function settle(uint8 slot)',
+  'function flushInflow()',
+  'function withdrawFee()',
+  'function refreshTaxRate()',
+
+  // ─── Owner-only (admin) ───
+  'function setToken(address _token)',
+  'function setSharePrice(uint256 newPrice)',
+  'function setFeeRecipient(address newRecipient)',
+  'function transferOwnership(address newOwner)',
+  'function emergencyWithdrawBNB(address to, uint256 amount)',
+  'function emergencyWithdrawToken(address tokenAddr, address to, uint256 amount)',
+
+  // ─── State views ───
+  'function owner() view returns (address)',
+  'function tokenLocked() view returns (bool)',
+  'function token() view returns (address)',
+  'function feeRecipient() view returns (address)',
+  'function pendingFee() view returns (uint256)',
+  'function totalFeeCollected() view returns (uint256)',
+  'function taxRateBps() view returns (uint256)',
+  'function pendingInflow() view returns (uint256)',
+  'function reservePool() view returns (uint256)',
+
+  // ─── Computed views ───
+  'function getCurrentRound(uint8 slot) view returns (uint256 roundId, uint256 startTime, uint256 endTime, uint256 openPrice, uint256 currentPrice, uint256 totalUpShares, uint256 totalDownShares, uint256 bnbPool, uint256 sharePriceLocked, uint256 secondsLeft, bool bettingOpen)',
+  'function previewPayout(uint8 slot, bool isUp, uint16 shares) view returns (uint256)',
+  'function getMyBet(uint8 slot, uint256 rid) view returns (uint16 shares, bool isUp, bool claimed, bool isWinner, bool roundSettled, uint256 estimatedClaim)',
+  'function getProtocolStats() view returns (uint256 reservePool, uint256 totalBurned, uint256 totalWinnerPaid, uint256 totalInflow, uint256 vaultBnbBalance, uint256 currentSharePrice)',
+  'function rounds(uint8 slot, uint256 rid) view returns (uint256 startTime, uint256 endTime, uint256 openPrice, uint256 openPriceTwap, uint32 openTwapTimestamp, uint256 closePrice, uint256 totalUpShares, uint256 totalDownShares, uint256 bnbPool, uint256 sharePriceLocked, bool settled, bool upWon, bool voided)',
+  'function bets(uint8 slot, uint256 rid, address user) view returns (uint16 shares, bool isUp, bool claimed)',
+  'function currentRoundId(uint8 slot) view returns (uint256)',
+  'function sharePrice() view returns (uint256)',
+  'function getCurrentPrice() view returns (uint256)',
+
+  // ─── Events ───
+  'event BetPlaced(uint8 indexed slot, uint256 indexed roundId, address indexed user, bool isUp, uint16 shares, uint256 tokenAmount)',
+  'event RoundSettled(uint8 indexed slot, uint256 indexed roundId, uint256 openPrice, uint256 closePrice, bool upWon, uint256 winnersPool, uint256 rolledOver, uint256 burned)',
+  'event Claimed(uint8 indexed slot, uint256 indexed roundId, address indexed user, uint256 tokenRefund, uint256 bnbWon)',
+  'event TokenSet(address indexed token)',
+  'event OwnershipTransferred(address indexed previousOwner, address indexed newOwner)',
+  'event FeeAccrued(uint256 amount)',
+  'event FeeWithdrawn(address indexed recipient, uint256 amount)',
+  'event EmergencyWithdrawnBNB(address indexed to, uint256 amount, address indexed by)',
+  'event EmergencyWithdrawnToken(address indexed tokenAddr, address indexed to, uint256 amount, address indexed by)',
+];
+
+const ERC20_ABI = [
+  'function balanceOf(address) view returns (uint256)',
+  'function allowance(address owner, address spender) view returns (uint256)',
+  'function approve(address spender, uint256 amount) returns (bool)',
+];
+
+let provider, signer, account, vault, token;
+let currentSlot = 0;
+let currentDirection = null;
+let currentShares = 5;
+let cachedRound = null;
+
+function fmt(value, decimals = 2) {
+  if (value === undefined || value === null) return '—';
+  let v;
+  try { v = typeof value === 'bigint' ? Number(ethers.formatEther(value)) : Number(value); }
+  catch { return '—'; }
+  if (isNaN(v) || v === 0) return '0';
+  if (v < 0.0001) return '<0.0001';
+  if (v < 1) return v.toFixed(4);
+  if (v < 1000) return v.toFixed(decimals);
+  if (v < 1e6) return (v / 1000).toFixed(1) + 'K';
+  return (v / 1e6).toFixed(2) + 'M';
+}
+
+function fmtPrice(value) {
+  if (!value) return '—';
+  try {
+    const v = Number(ethers.formatEther(value));
+    if (v === 0) return '—';
+    return v.toFixed(8);
+  } catch { return '—'; }
+}
+
+function shortAddr(a) {
+  return a ? a.slice(0, 6) + '…' + a.slice(-4) : '';
+}
+
+function formatCountdown(secs) {
+  if (secs <= 0) return '00:00:00';
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  return [h, m, s].map(x => String(x).padStart(2, '0')).join(':');
+}
+
+function toast(msg, type = '') {
+  const c = document.getElementById('toastContainer');
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  c.appendChild(el);
+  setTimeout(() => {
+    el.style.animation = 'slideIn 0.4s reverse';
+    setTimeout(() => el.remove(), 400);
+  }, 4000);
+}
+
+// ─── Wallet connection (EIP-6963 + WalletConnect v2) ───
+
+// 你需要去 https://cloud.reown.com 申请一个免费的 Project ID
+// 没有 Project ID 时 WalletConnect 仍然可用但会有警告
+const WC_PROJECT_ID = 'YOUR_WALLETCONNECT_PROJECT_ID';
+
+// EIP-6963 wallet registry — 浏览器宣告的所有钱包都在这里
+const eip6963Providers = [];
+let activeEip1193Provider = null; // 当前选中的钱包的 1193 provider
+let walletConnectProvider = null;
+let lastChainId = null;
+
+// 监听 EIP-6963 公告
+window.addEventListener('eip6963:announceProvider', (event) => {
+  const detail = event.detail;
+  // 去重（按 rdns）
+  if (!eip6963Providers.find(p => p.info.rdns === detail.info.rdns)) {
+    eip6963Providers.push(detail);
+  }
+});
+// 触发所有钱包公告自己
+window.dispatchEvent(new Event('eip6963:requestProvider'));
+
+// 钱包选择弹窗控制
+const walletModalEl = document.getElementById('walletModal');
+const walletListEl = document.getElementById('walletList');
+const walletModalCloseEl = document.getElementById('walletModalClose');
+
+function openWalletModal() {
+  // 重新触发 6963 公告（可能在打开瞬间又有新钱包安装）
+  window.dispatchEvent(new Event('eip6963:requestProvider'));
+
+  // 渲染列表
+  walletListEl.innerHTML = '';
+
+  // EIP-6963 钱包
+  if (eip6963Providers.length > 0) {
+    for (const p of eip6963Providers) {
+      const btn = document.createElement('button');
+      btn.className = 'wallet-item';
+      btn.innerHTML = `
+        <img class="wallet-item-icon" src="${p.info.icon}" alt="" onerror="this.style.display='none'">
+        <span class="wallet-item-name">${escapeHtml(p.info.name)}</span>
+        <span class="wallet-item-tag">已安装</span>
+      `;
+      btn.addEventListener('click', () => connectInjected(p));
+      walletListEl.appendChild(btn);
+    }
+  } else if (window.ethereum) {
+    // 旧浏览器：没有 EIP-6963 但有 window.ethereum（兜底）
+    const btn = document.createElement('button');
+    btn.className = 'wallet-item';
+    btn.innerHTML = `
+      <div class="wallet-item-icon-placeholder">🦊</div>
+      <span class="wallet-item-name">浏览器钱包 / Browser Wallet</span>
+      <span class="wallet-item-tag">已安装</span>
+    `;
+    btn.addEventListener('click', () => connectLegacyInjected());
+    walletListEl.appendChild(btn);
+  }
+
+  // WalletConnect (始终显示)
+  const wcBtn = document.createElement('button');
+  wcBtn.className = 'wallet-item';
+  wcBtn.innerHTML = `
+    <div class="wallet-item-icon-placeholder" style="background: linear-gradient(135deg, #3b99fc 0%, #6ec5e8 100%);">
+      <svg width="22" height="22" viewBox="0 0 40 40" fill="none">
+        <path d="M11.4 14.5c4.7-4.6 12.4-4.6 17.2 0l.6.6c.2.2.2.6 0 .9l-2 2c-.1.1-.3.1-.4 0l-.8-.8c-3.3-3.2-8.7-3.2-12 0l-.9.9c-.1.1-.3.1-.4 0l-2-2c-.2-.2-.2-.6 0-.9l.7-.7zm21.2 4l1.8 1.7c.2.2.2.6 0 .9l-8.1 7.9c-.2.2-.6.2-.9 0l-5.7-5.6c-.1-.1-.2-.1-.2 0l-5.7 5.6c-.2.2-.6.2-.9 0L4.7 21c-.2-.2-.2-.6 0-.9l1.8-1.7c.2-.2.6-.2.9 0L13 24c.1.1.2.1.2 0l5.7-5.6c.2-.2.6-.2.9 0l5.7 5.6c.1.1.2.1.2 0L31.4 18c.4-.2.7-.2.9 0z" fill="white"/>
+      </svg>
+    </div>
+    <span class="wallet-item-name">WalletConnect</span>
+    <span class="wallet-item-tag">扫码 · 移动端</span>
+  `;
+  wcBtn.addEventListener('click', () => connectWalletConnect());
+  walletListEl.appendChild(wcBtn);
+
+  // 如果连 6963 钱包和 window.ethereum 都没有
+  if (eip6963Providers.length === 0 && !window.ethereum) {
+    const hint = document.createElement('div');
+    hint.className = 'wallet-empty';
+    hint.innerHTML = `没检测到浏览器钱包<br><span style="font-size:13px;opacity:0.7;">用 WalletConnect 扫码连接手机钱包 ↑</span>`;
+    walletListEl.insertBefore(hint, walletListEl.firstChild);
+  }
+
+  walletModalEl.classList.add('open');
+}
+
+function closeWalletModal() {
+  walletModalEl.classList.remove('open');
+}
+
+walletModalCloseEl.addEventListener('click', closeWalletModal);
+walletModalEl.addEventListener('click', (e) => {
+  if (e.target === walletModalEl) closeWalletModal();
+});
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ─── Connect: EIP-6963 ───
+async function connectInjected(detail) {
+  closeWalletModal();
+  try {
+    const eip1193 = detail.provider;
+    const accounts = await eip1193.request({ method: 'eth_requestAccounts' });
+    if (!accounts || accounts.length === 0) {
+      toast('用户拒绝了连接', 'error');
+      return;
+    }
+    activeEip1193Provider = eip1193;
+    await onConnected(eip1193, accounts[0], detail.info.name);
+  } catch (e) {
+    console.error(e);
+    toast('连接失败: ' + (e.shortMessage || e.message || e), 'error');
+  }
+}
+
+// ─── Connect: 旧浏览器 window.ethereum 兜底 ───
+async function connectLegacyInjected() {
+  closeWalletModal();
+  try {
+    const eip1193 = window.ethereum;
+    const accounts = await eip1193.request({ method: 'eth_requestAccounts' });
+    activeEip1193Provider = eip1193;
+    await onConnected(eip1193, accounts[0], '浏览器钱包');
+  } catch (e) {
+    console.error(e);
+    toast('连接失败: ' + (e.shortMessage || e.message || e), 'error');
+  }
+}
+
+// ─── Connect: WalletConnect v2 ───
+async function connectWalletConnect() {
+  closeWalletModal();
+  try {
+    if (typeof globalThis['@walletconnect/ethereum-provider'] === 'undefined' && typeof window['@walletconnect/ethereum-provider'] === 'undefined') {
+      toast('WalletConnect 库加载失败 — 请检查网络', 'error');
+      return;
+    }
+
+    const WCProviderModule =
+      globalThis['@walletconnect/ethereum-provider'] ||
+      window['@walletconnect/ethereum-provider'];
+
+    toast('正在初始化 WalletConnect…', '');
+
+    walletConnectProvider = await WCProviderModule.EthereumProvider.init({
+      projectId: WC_PROJECT_ID,
+      chains: [CONFIG.CHAIN_ID],
+      showQrModal: true,
+      rpcMap: { [CONFIG.CHAIN_ID]: CONFIG.RPC_URL },
+      metadata: {
+        name: '蝴蝶预测 · Butterfly Prediction',
+        description: '三档涨跌预测 · 输不亏代币 · 赢瓜分 BNB',
+        url: window.location.origin,
+        icons: [window.location.origin + '/assets/logo.png'],
+      },
+      qrModalOptions: {
+        themeMode: 'dark',
+        themeVariables: {
+          '--wcm-accent-color': '#d670a8',
+          '--wcm-background-color': '#1f0f3d',
+        },
+      },
+    });
+
+    await walletConnectProvider.connect();
+    const accounts = await walletConnectProvider.request({ method: 'eth_accounts' });
+    if (!accounts || accounts.length === 0) {
+      toast('未获取到账户', 'error');
+      return;
+    }
+
+    // 监听断开/账号切换
+    walletConnectProvider.on('disconnect', () => {
+      handleDisconnect();
+    });
+    walletConnectProvider.on('accountsChanged', (accs) => {
+      if (!accs || accs.length === 0) handleDisconnect();
+      else { account = accs[0]; updateUiAfterConnect(); }
+    });
+
+    activeEip1193Provider = walletConnectProvider;
+    await onConnected(walletConnectProvider, accounts[0], 'WalletConnect');
+  } catch (e) {
+    console.error(e);
+    toast('WalletConnect 连接失败: ' + (e.shortMessage || e.message || e), 'error');
+  }
+}
+
+// ─── 共享：连接成功后处理 ───
+async function onConnected(eip1193, addr, walletName) {
+  account = addr;
+  provider = new ethers.BrowserProvider(eip1193, 'any');
+
+  // 检查链
+  const network = await provider.getNetwork();
+  lastChainId = Number(network.chainId);
+  if (lastChainId !== CONFIG.CHAIN_ID) {
+    try {
+      await eip1193.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: '0x' + CONFIG.CHAIN_ID.toString(16) }],
+      });
+    } catch (switchErr) {
+      // 4902 = chain not added
+      if (switchErr.code === 4902 || switchErr.data?.originalError?.code === 4902) {
+        try {
+          await eip1193.request({
+            method: 'wallet_addEthereumChain',
+            params: [{
+              chainId: '0x' + CONFIG.CHAIN_ID.toString(16),
+              chainName: 'BNB Smart Chain',
+              nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
+              rpcUrls: [CONFIG.RPC_URL],
+              blockExplorerUrls: ['https://bscscan.com'],
+            }],
+          });
+        } catch {
+          toast('请手动切换到 BNB Chain', 'error');
+          return;
+        }
+      } else {
+        toast('请切换到 BNB Chain', 'error');
+        return;
+      }
+    }
+    // 切链后刷新 provider
+    provider = new ethers.BrowserProvider(eip1193, 'any');
+  }
+
+  signer = await provider.getSigner();
+  vault = new ethers.Contract(CONFIG.VAULT_ADDRESS, VAULT_ABI, signer);
+  token = new ethers.Contract(CONFIG.TOKEN_ADDRESS, ERC20_ABI, signer);
+
+  // 监听账户/链变化
+  if (eip1193.on) {
+    eip1193.on('accountsChanged', (accs) => {
+      if (!accs || accs.length === 0) handleDisconnect();
+      else { account = accs[0]; updateUiAfterConnect(); refreshAll(); refreshMyBets(); }
+    });
+    eip1193.on('chainChanged', () => {
+      window.location.reload();
+    });
+    eip1193.on('disconnect', () => handleDisconnect());
+  }
+
+  // 持久化最近用的钱包
+  try { localStorage.setItem('bp_lastWallet', walletName); } catch {}
+
+  updateUiAfterConnect();
+  toast(`已连接 · ${walletName}`, 'success');
+  refreshAll();
+  refreshMyBets();
+}
+
+function updateUiAfterConnect() {
+  document.getElementById('connectBtn').textContent = shortAddr(account);
+}
+
+function handleDisconnect() {
+  account = null;
+  provider = null;
+  signer = null;
+  vault = null;
+  token = null;
+  activeEip1193Provider = null;
+  if (walletConnectProvider) {
+    try { walletConnectProvider.disconnect(); } catch {}
+    walletConnectProvider = null;
+  }
+  document.getElementById('connectBtn').textContent = '连接钱包';
+  try { localStorage.removeItem('bp_lastWallet'); } catch {}
+  toast('钱包已断开', '');
+}
+
+// 主入口
+async function connect() {
+  // 已连接 → 显示断开选项
+  if (account) {
+    if (confirm(`已连接：${shortAddr(account)}\n\n确认要断开吗？`)) {
+      handleDisconnect();
+    }
+    return;
+  }
+  openWalletModal();
+}
+
+async function getReadProvider() {
+  return provider || new ethers.JsonRpcProvider(CONFIG.RPC_URL);
+}
+
+async function getReadVault() {
+  const p = await getReadProvider();
+  return new ethers.Contract(CONFIG.VAULT_ADDRESS, VAULT_ABI, p);
+}
+
+async function refreshTickers() {
+  try {
+    const v = await getReadVault();
+    const stats = await v.getProtocolStats();
+    document.getElementById('vaultBnb').textContent = fmt(stats.vaultBnbBalance, 4) + ' BNB';
+    document.getElementById('totalBurned').textContent = fmt(stats.totalBurned);
+    document.getElementById('totalPaid').textContent = fmt(stats.totalWinnerPaid, 4) + ' BNB';
+    const price = await v.getCurrentPrice();
+    document.getElementById('currentPrice').textContent = fmtPrice(price);
+  } catch (e) {
+    console.warn('refreshTickers:', e.message);
+  }
+}
+
+async function refreshRound() {
+  try {
+    const v = await getReadVault();
+    const r = await v.getCurrentRound(currentSlot);
+    cachedRound = r;
+
+    const slotName = ['20 分钟', '1 小时', '24 小时'][currentSlot];
+    document.getElementById('roundTitle').textContent = slotName + ' 档';
+    document.getElementById('roundId').textContent = '轮次 #' + r.roundId.toString();
+    document.getElementById('openPrice').textContent = fmtPrice(r.openPrice);
+    document.getElementById('poolBnb').textContent = fmt(r.bnbPool, 4) + ' BNB';
+    document.getElementById('sharePriceLocked').textContent = fmt(r.sharePriceLocked) + ' 蝴蝶预测';
+    document.getElementById('upShares').textContent = r.totalUpShares.toString();
+    document.getElementById('downShares').textContent = r.totalDownShares.toString();
+
+    const totalShares = Number(r.totalUpShares) + Number(r.totalDownShares);
+    if (totalShares > 0) {
+      const upPct = (Number(r.totalUpShares) / totalShares) * 100;
+      document.getElementById('fillUp').style.width = upPct + '%';
+      document.getElementById('fillDown').style.width = (100 - upPct) + '%';
+    } else {
+      document.getElementById('fillUp').style.width = '50%';
+      document.getElementById('fillDown').style.width = '50%';
+    }
+
+    const upShares = Number(r.totalUpShares);
+    const downShares = Number(r.totalDownShares);
+    const pool = Number(ethers.formatEther(r.bnbPool));
+    const winnersPool = pool * 0.7;
+
+    document.getElementById('oddsUp').textContent = upShares > 0 ? (winnersPool / upShares).toFixed(5) : '—';
+    document.getElementById('oddsDown').textContent = downShares > 0 ? (winnersPool / downShares).toFixed(5) : '—';
+
+    if (currentShares > 0) {
+      try {
+        const upPay = await v.previewPayout(currentSlot, true, currentShares);
+        const downPay = await v.previewPayout(currentSlot, false, currentShares);
+        document.getElementById('payoutUp').textContent = fmt(upPay, 5);
+        document.getElementById('payoutDown').textContent = fmt(downPay, 5);
+      } catch {}
+    }
+
+    const cost = BigInt(currentShares) * r.sharePriceLocked;
+    document.getElementById('costLabel').textContent = '需要 ' + fmt(cost) + ' 蝴蝶预测';
+
+    updateCountdown(Number(r.secondsLeft), r.bettingOpen);
+  } catch (e) {
+    console.warn('refreshRound:', e.message);
+  }
+}
+
+let countdownInterval;
+function updateCountdown(initialSecs, bettingOpen) {
+  if (countdownInterval) clearInterval(countdownInterval);
+  let secs = initialSecs;
+  const update = () => {
+    document.getElementById('countdown').textContent = formatCountdown(Math.max(0, secs));
+    if (secs <= 0) {
+      clearInterval(countdownInterval);
+      setTimeout(refreshAll, 3000);
+    }
+    secs--;
+  };
+  update();
+  countdownInterval = setInterval(update, 1000);
+  updatePlaceBetButton();
+}
+
+async function refreshAll() {
+  await Promise.all([refreshTickers(), refreshRound()]);
+}
+
+async function refreshMyBets() {
+  if (!account) return;
+  const list = document.getElementById('myBetsList');
+  list.innerHTML = '<div class="empty-state">加载中…</div>';
+
+  try {
+    const v = await getReadVault();
+    const found = [];
+    for (let slot = 0; slot < 3; slot++) {
+      const currentRid = Number(await v.currentRoundId(slot));
+      const fromRid = Math.max(1, currentRid - 5);
+      for (let rid = currentRid; rid >= fromRid; rid--) {
+        try {
+          const bet = await v.bets(slot, rid, account);
+          if (bet.shares > 0) {
+            const round = await v.rounds(slot, rid);
+            let status = 'pending';
+            let claimable = 0n;
+            if (round.settled) {
+              if (round.voided) {
+                status = 'voided';
+                claimable = BigInt(bet.shares) * round.sharePriceLocked;
+              } else {
+                const isWinner = (bet.isUp && round.upWon) || (!bet.isUp && !round.upWon);
+                if (isWinner) {
+                  status = bet.claimed ? 'claimed' : 'won';
+                  if (!bet.claimed) {
+                    const winnerShares = round.upWon ? round.totalUpShares : round.totalDownShares;
+                    if (winnerShares > 0n) claimable = (round.bnbPool * BigInt(bet.shares)) / winnerShares;
+                  }
+                } else {
+                  status = bet.claimed ? 'claimed' : 'lost';
+                }
+              }
+            }
+            found.push({
+              slot, rid: Number(rid),
+              shares: Number(bet.shares),
+              isUp: bet.isUp,
+              claimed: bet.claimed,
+              status,
+              claimableBnb: claimable,
+              tokenRefund: BigInt(bet.shares) * round.sharePriceLocked,
+              endTime: Number(round.endTime),
+            });
+          }
+        } catch {}
+      }
+    }
+
+    if (found.length === 0) {
+      list.innerHTML = '<div class="empty-state">尚无下注记录 — 上面挑一个档位试试</div>';
+      return;
+    }
+
+    found.sort((a, b) => {
+      if (a.status === 'pending' && b.status !== 'pending') return -1;
+      if (a.status !== 'pending' && b.status === 'pending') return 1;
+      return b.endTime - a.endTime;
+    });
+
+    list.innerHTML = '';
+    for (const b of found) {
+      const slotName = ['20分', '1时', '24时'][b.slot];
+      const dirText = b.isUp ? '🦋 涨' : '🦋 跌';
+      const dirClass = b.isUp ? 'up' : 'down';
+
+      let statusBadge, actionHtml = '';
+      switch (b.status) {
+        case 'pending':
+          statusBadge = `<span class="bet-row-status status-pending">等待结算</span>`;
+          break;
+        case 'won':
+          statusBadge = `<span class="bet-row-status status-won">赢 ${fmt(b.claimableBnb, 4)} BNB</span>`;
+          actionHtml = `<button class="btn" onclick="claimBet(${b.slot}, ${b.rid})">领取</button>`;
+          break;
+        case 'lost':
+          statusBadge = `<span class="bet-row-status status-lost">输</span>`;
+          actionHtml = `<button class="btn" onclick="claimBet(${b.slot}, ${b.rid})">取回代币</button>`;
+          break;
+        case 'voided':
+          statusBadge = `<span class="bet-row-status status-voided">本轮无效</span>`;
+          actionHtml = `<button class="btn" onclick="claimBet(${b.slot}, ${b.rid})">取回代币</button>`;
+          break;
+        case 'claimed':
+          statusBadge = `<span class="bet-row-status status-claimed">已领取</span>`;
+          break;
+      }
+
+      const row = document.createElement('div');
+      row.className = 'bet-row';
+      row.innerHTML = `
+        <span class="bet-row-slot">${slotName}#${b.rid}</span>
+        <span class="bet-row-direction ${dirClass}">${dirText}</span>
+        <span class="bet-row-shares">${b.shares} 份</span>
+        ${statusBadge}
+        <div>${actionHtml}</div>
+      `;
+      list.appendChild(row);
+    }
+  } catch (e) {
+    console.error(e);
+    list.innerHTML = '<div class="empty-state">加载失败 — 检查合约配置</div>';
+  }
+}
+
+window.claimBet = async function(slot, rid) {
+  if (!signer) { toast('请先连接钱包', 'error'); return; }
+  try {
+    toast('发送领取交易…', '');
+    const tx = await vault.claim(slot, rid);
+    await tx.wait();
+    toast('领取成功 ✓', 'success');
+    refreshMyBets();
+  } catch (e) {
+    toast('领取失败: ' + (e.shortMessage || e.message), 'error');
+  }
+};
+
+function updatePlaceBetButton() {
+  const btn = document.getElementById('placeBetBtn');
+  if (!signer) {
+    btn.disabled = true;
+    btn.textContent = '请连接钱包';
+    return;
+  }
+  if (!cachedRound || !cachedRound.bettingOpen) {
+    btn.disabled = true;
+    btn.textContent = '本轮投注已关闭';
+    return;
+  }
+  if (!currentDirection) {
+    btn.disabled = true;
+    btn.textContent = '请选择押涨或押跌';
+    return;
+  }
+  btn.disabled = false;
+  btn.textContent = `押 ${currentShares} 份 ${currentDirection === 'up' ? '涨' : '跌'} · START`;
+}
+
+async function placeBet() {
+  if (!signer || !currentDirection || !cachedRound) return;
+  const isUp = currentDirection === 'up';
+  const shares = currentShares;
+  const tokenCost = BigInt(shares) * cachedRound.sharePriceLocked;
+
+  const btn = document.getElementById('placeBetBtn');
+  const orig = btn.textContent;
+  btn.disabled = true;
+
+  try {
+    const bal = await token.balanceOf(account);
+    if (bal < tokenCost) {
+      toast('代币余额不足，需要 ' + fmt(tokenCost) + ' 蝴蝶预测', 'error');
+      btn.disabled = false; btn.textContent = orig;
+      return;
+    }
+
+    const allow = await token.allowance(account, CONFIG.VAULT_ADDRESS);
+    if (allow < tokenCost) {
+      btn.textContent = '授权中…';
+      const tx = await token.approve(CONFIG.VAULT_ADDRESS, ethers.MaxUint256);
+      toast('授权交易已发送', '');
+      await tx.wait();
+      toast('授权成功 ✓', 'success');
+    }
+
+    btn.textContent = '下注中…';
+    const tx = await vault.placeBet(currentSlot, isUp, shares);
+    toast('下注交易已发送', '');
+    await tx.wait();
+    toast('下注成功 ✓ 等待结算', 'success');
+
+    refreshAll();
+    refreshMyBets();
+  } catch (e) {
+    console.error(e);
+    toast('下注失败: ' + (e.shortMessage || e.message), 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = orig;
+    updatePlaceBetButton();
+  }
+}
+
+document.getElementById('connectBtn').addEventListener('click', connect);
+document.getElementById('placeBetBtn').addEventListener('click', placeBet);
+
+document.querySelectorAll('.slot-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.slot-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    currentSlot = parseInt(tab.dataset.slot);
+    refreshRound();
+  });
+});
+
+document.querySelectorAll('.bet-card').forEach(card => {
+  card.addEventListener('click', () => {
+    document.querySelectorAll('.bet-card').forEach(c => c.classList.remove('active'));
+    card.classList.add('active');
+    currentDirection = card.dataset.direction;
+    updatePlaceBetButton();
+  });
+});
+
+function renderShares() {
+  document.getElementById('sharesValue').textContent = currentShares;
+  document.getElementById('sharesButterflies').textContent = '🦋'.repeat(Math.min(currentShares, 20));
+  if (cachedRound) {
+    const cost = BigInt(currentShares) * cachedRound.sharePriceLocked;
+    document.getElementById('costLabel').textContent = '需要 ' + fmt(cost) + ' 蝴蝶预测';
+  }
+  refreshPayouts();
+  updatePlaceBetButton();
+}
+
+let payoutDebounce;
+async function refreshPayouts() {
+  clearTimeout(payoutDebounce);
+  payoutDebounce = setTimeout(async () => {
+    try {
+      const v = await getReadVault();
+      const upPay = await v.previewPayout(currentSlot, true, currentShares);
+      const downPay = await v.previewPayout(currentSlot, false, currentShares);
+      document.getElementById('payoutUp').textContent = fmt(upPay, 5);
+      document.getElementById('payoutDown').textContent = fmt(downPay, 5);
+    } catch {}
+  }, 300);
+}
+
+document.getElementById('sharesMinus').addEventListener('click', () => {
+  if (currentShares > 1) { currentShares--; renderShares(); }
+});
+document.getElementById('sharesPlus').addEventListener('click', () => {
+  if (currentShares < 20) { currentShares++; renderShares(); }
+});
+
+renderShares();
+refreshAll();
+setInterval(refreshAll, 15000);
+setInterval(refreshMyBets, 30000);
+
+// ─── Auto-reconnect ───
+// ��在用户上次确实手动连过的情况下才尝试自动重连
+// 避免每次刷新页面都弹钱包窗
+async function tryAutoReconnect() {
+  let lastWallet;
+  try { lastWallet = localStorage.getItem('bp_lastWallet'); } catch {}
+  if (!lastWallet) return;
+
+  // 等 EIP-6963 公告就位（200ms）
+  await new Promise(r => setTimeout(r, 200));
+  window.dispatchEvent(new Event('eip6963:requestProvider'));
+  await new Promise(r => setTimeout(r, 100));
+
+  // 找之前用的钱包
+  const found = eip6963Providers.find(p => p.info.name === lastWallet);
+  if (found) {
+    try {
+      const accs = await found.provider.request({ method: 'eth_accounts' });
+      if (accs && accs.length > 0) {
+        activeEip1193Provider = found.provider;
+        await onConnected(found.provider, accs[0], found.info.name);
+        return;
+      }
+    } catch {}
+  }
+
+  // 兜底：尝试 window.ethereum
+  if (lastWallet === '浏览器钱包' && window.ethereum && window.ethereum.selectedAddress) {
+    try {
+      const accs = await window.ethereum.request({ method: 'eth_accounts' });
+      if (accs && accs.length > 0) {
+        activeEip1193Provider = window.ethereum;
+        await onConnected(window.ethereum, accs[0], '浏览器钱包');
+      }
+    } catch {}
+  }
+
+  // WalletConnect 自动重连暂不做（每次都要重新批准签名，UX 不好）
+}
+
+tryAutoReconnect();
+</script>
+
+</body>
+</html>
