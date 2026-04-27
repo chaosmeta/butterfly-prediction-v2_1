@@ -1360,7 +1360,7 @@
 // ─── Config ───
 const CONFIG = {
   VAULT_ADDRESS: '0x14fb19D46896198be280296045DDcD419C1FFA67',
-  TOKEN_ADDRESS: '0x7ba7e046c9d062839611d4ca17909a2097567777', // 待定 — flap.sh 创建代币后填这里
+  TOKEN_ADDRESS: '0x7ba7e046c9d062839611d4ca17909a2097567777', // BFLY 代币合约地址
   CHAIN_ID: 56,
   RPC_URL: 'https://bsc-dataseed.binance.org/',
 };
@@ -1398,7 +1398,7 @@ const VAULT_ABI = [
   'function previewPayout(uint8 slot, bool isUp, uint16 shares) view returns (uint256)',
   'function getMyBet(uint8 slot, uint256 rid) view returns (uint16 shares, bool isUp, bool claimed, bool isWinner, bool roundSettled, uint256 estimatedClaim)',
   'function getProtocolStats() view returns (uint256 reservePool, uint256 totalBurned, uint256 totalWinnerPaid, uint256 totalInflow, uint256 vaultBnbBalance, uint256 currentSharePrice)',
-  'function rounds(uint8 slot, uint256 rid) view returns (uint256 startTime, uint256 endTime, uint256 openPrice, uint256 openPriceTwap, uint32 openTwapTimestamp, uint256 closePrice, uint256 totalUpShares, uint256 totalDownShares, uint256 bnbPool, uint256 sharePriceLocked, bool settled, bool upWon, bool voided)',
+  'function rounds(uint8 slot, uint256 rid) view returns (uint256 startTime, uint256 endTime, uint256 openPrice, uint256 closePrice, uint256 openCumPrice, uint256 openCumTimestamp, uint256 totalUpShares, uint256 totalDownShares, uint256 bnbPool, uint256 sharePriceLocked, bool settled, bool upWon, bool voided)',
   'function bets(uint8 slot, uint256 rid, address user) view returns (uint16 shares, bool isUp, bool claimed)',
   'function currentRoundId(uint8 slot) view returns (uint256)',
   'function sharePrice() view returns (uint256)',
@@ -1792,14 +1792,17 @@ async function refreshRound() {
     const r = await v.getCurrentRound(currentSlot);
     cachedRound = r;
 
+    // Bug 2 修复：roundId=0 且 endTime=0 说明合约还没有通过第一次 placeBet 启动第一轮
+    const notStarted = (r.roundId === 0n || Number(r.roundId) === 0) && Number(r.endTime) === 0;
+
     const slotName = ['20 分钟', '1 小时', '24 小时'][currentSlot];
     document.getElementById('roundTitle').textContent = slotName + ' 档';
-    document.getElementById('roundId').textContent = '轮次 #' + r.roundId.toString();
-    document.getElementById('openPrice').textContent = fmtPrice(r.openPrice);
-    document.getElementById('poolBnb').textContent = fmt(r.bnbPool, 4) + ' BNB';
-    document.getElementById('sharePriceLocked').textContent = fmt(r.sharePriceLocked) + ' 蝴蝶预测';
-    document.getElementById('upShares').textContent = r.totalUpShares.toString();
-    document.getElementById('downShares').textContent = r.totalDownShares.toString();
+    document.getElementById('roundId').textContent = notStarted ? '等待第一笔下注启动' : ('轮次 #' + r.roundId.toString());
+    document.getElementById('openPrice').textContent = notStarted ? '—' : fmtPrice(r.openPrice);
+    document.getElementById('poolBnb').textContent = notStarted ? '—' : (fmt(r.bnbPool, 4) + ' BNB');
+    document.getElementById('sharePriceLocked').textContent = notStarted ? '—' : (fmt(r.sharePriceLocked) + ' 蝴蝶预测');
+    document.getElementById('upShares').textContent = notStarted ? '—' : r.totalUpShares.toString();
+    document.getElementById('downShares').textContent = notStarted ? '—' : r.totalDownShares.toString();
 
     const totalShares = Number(r.totalUpShares) + Number(r.totalDownShares);
     if (totalShares > 0) {
@@ -1984,7 +1987,25 @@ function updatePlaceBetButton() {
     btn.textContent = '请连接钱包';
     return;
   }
-  if (!cachedRound || !cachedRound.bettingOpen) {
+  if (!cachedRound) {
+    btn.disabled = true;
+    btn.textContent = '数据加载中…';
+    return;
+  }
+  // 合约未启动（roundId=0 且 endTime=0）：等待第一笔下注触发
+  const notStarted = (Number(cachedRound.roundId) === 0) && (Number(cachedRound.endTime) === 0);
+  if (notStarted) {
+    // 允许下注，第一笔下注会触发 _startNewRound
+    if (!currentDirection) {
+      btn.disabled = true;
+      btn.textContent = '选方向以启动第一轮';
+      return;
+    }
+    btn.disabled = false;
+    btn.textContent = `首笔下注 · 启动第一轮 ${currentShares} 份 ${currentDirection === 'up' ? '涨' : '跌'}`;
+    return;
+  }
+  if (!cachedRound.bettingOpen) {
     btn.disabled = true;
     btn.textContent = '本轮投注已关闭';
     return;
@@ -2102,7 +2123,7 @@ setInterval(refreshAll, 15000);
 setInterval(refreshMyBets, 30000);
 
 // ─── Auto-reconnect ───
-// ��在用户上次确实手动连过的情况下才尝试自动重连
+// ���在用户上次确实手动连过的情况下才尝试自动重连
 // 避免每次刷新页面都弹钱包窗
 async function tryAutoReconnect() {
   let lastWallet;
