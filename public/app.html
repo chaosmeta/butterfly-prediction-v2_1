@@ -1013,125 +1013,54 @@ async function loadMyBets(){
 }
 
 // 任何人都可以调用 settle(slot) 触发结算并自动开新轮
-// 先查链上真实状态再发交易，若 not yet 则自动等待重试
-async function triggerSettle(retryCount){
-  retryCount = retryCount ?? 0
+async function triggerSettle(){
   if(!signer){ toast('error','请先连接钱包'); return }
   const btn = document.getElementById('settle-btn')
   btn.disabled = true
-  if(retryCount === 0){
-    btn.innerHTML = '<span class="spinner"></span> 结算中'
-
-    // 第一次点击时：先查链上真实状态，显示诊断信息
-    try{
-      const rp = getReadProvider()
-      const readC = getReadPred()
-      const [latestBlock, onChainRid, roundRaw] = await Promise.all([
-        rp.getBlock('latest'),
-        readC.currentRoundId(BigInt(currentSlot)),
-        readC.getCurrentRound(currentSlot),
-      ])
-      const onChainEndTime = roundRaw[2]   // endTime
-      const onChainSecondsLeft = roundRaw[9] // secondsLeft
-      const blockTs = latestBlock.timestamp
-      console.log('[v0] settle 诊断 | slot:', currentSlot, '| onChainRid:', onChainRid.toString(), '| endTime:', new Date(Number(onChainEndTime)*1000).toLocaleTimeString(), '| blockTs:', new Date(blockTs*1000).toLocaleTimeString(), '| secondsLeft:', onChainSecondsLeft.toString())
-      toast('info', `轮次 #${onChainRid} 状态`, `链上剩余 ${onChainSecondsLeft} 秒，${onChainSecondsLeft === 0n ? '可结算' : '未到期'}`)
-    } catch(diagErr){
-      console.log('[v0] 诊断查询失败:', diagErr.message)
-    }
-  }
-
+  btn.innerHTML = '<span class="spinner"></span> 结算中'
   try{
     const predC = getSignerPred()
-    const slot = Number(currentSlot)
-
-    // 先估算 gas，失败说明合约会 revert，提前捕获错误原因
-    let gasEstimate
-    try{
-      gasEstimate = await predC.settle.estimateGas(slot)
-      console.log('[v0] settle gas estimate:', gasEstimate.toString())
-    } catch(estimateErr){
-      const errMsg = estimateErr.reason ?? estimateErr.shortMessage ?? estimateErr.message ?? ''
-      console.log('[v0] gas estimate 失败:', errMsg)
-      const low = errMsg.toLowerCase()
-      if(low.includes('not yet')){
-        if(retryCount < 6){
-          const wait = retryCount + 1
-          btn.textContent = `等待链上到期 (${wait}/6)...`
-          setTimeout(() => triggerSettle(retryCount + 1), 5000)
-        } else {
-          toast('error','结算失败','链上时间未到，请稍后再试')
-          btn.disabled = false; btn.textContent = '触发结算'
-        }
-      } else if(low.includes('reject') || low.includes('denied')){
-        btn.disabled = false; btn.textContent = '触发结算'
-      } else {
-        toast('error','结算预检失败', errMsg.slice(0,200))
-        btn.disabled = false; btn.textContent = '触发结算'
-      }
-      return
+    // 直接发交易，写死 gasLimit 300000（settle 实际约 15-20 万 gas）
+    // 避免 estimateGas 因节点时间戳差异误判 "not yet"
+    const tx = await predC.settle(Number(currentSlot), { gasLimit: 300000n })
+    toast('info','结算交易已发送','等待上链确认...')
+    const receipt = await tx.wait()
+    if(receipt.status === 0){
+      toast('error','结算失败','交易上链但执行失败，请稍后重试')
+    } else {
+      toast('success','结算完成，新一轮已自动开启')
+      btn.classList.add('hidden')
+      fetchRound()
+      if(address) loadMyBets()
     }
-
-    // gas 估算通过，正式发交易
-    const tx = await predC.settle(slot, { gasLimit: gasEstimate * 130n / 100n })
-    toast('info','结算交易已发送','等待上链...')
-    await tx.wait()
-    console.log('[v0] settle 成功')
-    toast('success','结算完成，新一轮已自动开启')
-    btn.classList.add('hidden')
-    fetchRound()
-    if(address) loadMyBets()
   } catch(e){
     const msg = (e.reason ?? e.shortMessage ?? e.message ?? '')
-    console.log('[v0] settle 发交易失败:', msg)
     const low = msg.toLowerCase()
-    if(low.includes('reject') || low.includes('denied')){
-      btn.disabled = false
-      btn.textContent = '触发结算'
-    } else {
+    if(!low.includes('reject') && !low.includes('denied')){
       toast('error','结算失败', msg.slice(0,200))
-      btn.disabled = false
-      btn.textContent = '触发结算'
     }
+    btn.disabled = false
+    btn.textContent = '触发结算'
   }
 }
 
 // 记录列表里的"触发结算"按钮
-async function triggerSettleForRecord(slot, btn, retryCount){
-  retryCount = retryCount ?? 0
+async function triggerSettleForRecord(slot, btn){
   if(!signer){ toast('error','请先连接钱包'); return }
   btn.disabled = true
-  if(retryCount === 0) btn.innerHTML = '<span class="spinner"></span> 结算中'
+  btn.innerHTML = '<span class="spinner"></span> 结算中'
   try{
     const predC = getSignerPred()
-    const slotNum = Number(slot)
-
-    // 先 estimateGas 预检，捕获 revert 原因
-    let gasEstimate
-    try{
-      gasEstimate = await predC.settle.estimateGas(slotNum)
-    } catch(estimateErr){
-      const errMsg = estimateErr.reason ?? estimateErr.shortMessage ?? estimateErr.message ?? ''
-      const low = errMsg.toLowerCase()
-      if(low.includes('not yet') && retryCount < 6){
-        const wait = retryCount + 1
-        btn.textContent = `等待链上到期 (${wait}/6)...`
-        setTimeout(() => triggerSettleForRecord(slot, btn, retryCount + 1), 5000)
-      } else if(!low.includes('reject') && !low.includes('denied')){
-        toast('error','结算预检失败', errMsg.slice(0,200))
-        btn.disabled = false; btn.textContent = '触发结算'
-      } else {
-        btn.disabled = false; btn.textContent = '触发结算'
-      }
-      return
+    const tx = await predC.settle(Number(slot), { gasLimit: 300000n })
+    toast('info','结算交易已发送','等待上链确认...')
+    const receipt = await tx.wait()
+    if(receipt.status === 0){
+      toast('error','结算失败','交易上链但执行失败，请稍后重试')
+    } else {
+      toast('success','结算完成')
+      fetchRound()
+      loadMyBets()
     }
-
-    const tx = await predC.settle(slotNum, { gasLimit: gasEstimate * 130n / 100n })
-    toast('info','结算交易已发送','等待上链...')
-    await tx.wait()
-    toast('success','结算完成')
-    fetchRound()
-    loadMyBets()
   } catch(e){
     const msg = (e.reason ?? e.shortMessage ?? e.message ?? '')
     const low = msg.toLowerCase()
