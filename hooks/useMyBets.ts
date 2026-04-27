@@ -10,16 +10,18 @@ export interface BetRecord {
   slot:        SlotId
   slotLabel:   string
   roundId:     bigint
-  upShares:    bigint
-  downShares:  bigint
+  shares:      bigint    // Bet.shares（uint16）
+  isUp:        boolean
+  /** 是否已领奖（合约 Bet.claimed） */
+  claimed:     boolean
   /** 已结算结果 */
   settled:     boolean
   upWon:       boolean | null
   voided:      boolean
-  /** 是否已领奖 */
-  claimed:     boolean
   /** 可领取（settled && 赢了 && 未 void && 未 claimed） */
   claimable:   boolean
+  /** 合约 getMyBet 返回的预计 BNB 收益 */
+  estimatedClaim: bigint
 }
 
 export function useMyBets(
@@ -39,38 +41,42 @@ export function useMyBets(
       const contract = getReadPrediction()
       const results: BetRecord[] = []
 
-      // 查最近 20 轮
-      const startId = currentRoundId > 20n ? currentRoundId - 20n : 0n
-
       for (let slot = 0; slot < 3; slot++) {
-        let rid = await contract.currentRoundId(slot)
+        // 获取该 slot 当前轮 ID
+        const rid: bigint = await contract.currentRoundId(slot)
         const lookback = rid > 20n ? rid - 20n : 0n
+
         for (let id = rid; id >= lookback; id--) {
           try {
-            const bet = await contract.betOf(slot, id, address)
-            if (bet.upShares === 0n && bet.downShares === 0n) continue
+            // 使用合约公共 mapping bets(slot, roundId, address)
+            // 返回 (uint16 shares, bool isUp, bool claimed)
+            const bet = await contract.bets(slot, id, address)
+            if (Number(bet.shares) === 0) continue
 
+            // 使用 getMyBet 获取结算状态和预计收益（合约直接计算好）
+            const myBet = await contract.getMyBet(slot, id)
             const round = await contract.rounds(slot, id)
+
+            const isWinner = myBet.isWinner as boolean
+            const settled  = myBet.roundSettled as boolean
+
             results.push({
-              slot:       slot as SlotId,
-              slotLabel:  SLOTS[slot].label,
-              roundId:    id,
-              upShares:   bet.upShares,
-              downShares: bet.downShares,
-              settled:    round.settled,
-              upWon:      round.settled ? round.upWon : null,
-              voided:     round.voided,
-              claimed:    false,   // 合约暂无 claimed 映射，靠本地过滤
-              claimable:  round.settled && !round.voided && (
-                (round.upWon  && bet.upShares   > 0n) ||
-                (!round.upWon && bet.downShares > 0n)
-              ),
+              slot:           slot as SlotId,
+              slotLabel:      SLOTS[slot].label,
+              roundId:        id,
+              shares:         BigInt(bet.shares),
+              isUp:           bet.isUp as boolean,
+              claimed:        bet.claimed as boolean,
+              settled,
+              upWon:          settled ? (round.upWon as boolean) : null,
+              voided:         round.voided as boolean,
+              claimable:      settled && !round.voided && isWinner && !(bet.claimed as boolean),
+              estimatedClaim: myBet.estimatedClaim as bigint,
             })
           } catch {
             // 某轮不存在时跳过
           }
         }
-        void startId // suppress unused-var
       }
 
       results.sort((a, b) => (a.roundId > b.roundId ? -1 : 1))
@@ -80,15 +86,20 @@ export function useMyBets(
     }
   }, [address, currentRoundId])
 
+  // 合约 claim(slot, rid) 是单轮领取，逐轮调用
   const claimRounds = useCallback(async (slot: SlotId, roundIds: bigint[]) => {
     if (!signer || roundIds.length === 0) return
     setClaiming(true)
+    let lastHash = ''
     try {
       const contract = getSignerPrediction(signer)
-      const tx = await contract.claim(slot, roundIds)
-      await tx.wait()
+      for (const rid of roundIds) {
+        const tx = await contract.claim(slot, rid)
+        await tx.wait()
+        lastHash = tx.hash as string
+      }
       await fetchBets()
-      return tx.hash as string
+      return lastHash
     } finally {
       setClaiming(false)
     }

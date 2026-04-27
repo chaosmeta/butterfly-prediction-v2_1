@@ -9,18 +9,15 @@ export interface RoundData {
   startTime:        bigint
   endTime:          bigint
   openPrice:        bigint
-  closePrice:       bigint
-  openCumPrice:     bigint
-  openCumTimestamp: bigint
+  currentPrice:     bigint   // getCurrentRound 返回的实时现价
   totalUpShares:    bigint
   totalDownShares:  bigint
   bnbPool:          bigint
   sharePriceLocked: bigint
-  settled:          boolean
-  upWon:            boolean
-  voided:           boolean
   bettingOpen:      boolean
-  /** 剩余秒数（前端计算） */
+  /** 链上返回的剩余秒数 */
+  secondsLeftOnchain: number
+  /** 前端本地倒计时（每秒更新） */
   secondsLeft:      number
   /** 0-1 进度（前端计算） */
   progress:         number
@@ -39,40 +36,39 @@ export function useRound(slot: SlotId) {
       const contract = getReadPrediction()
       const r = await contract.getCurrentRound(slot)
 
+      // getCurrentRound 返回：roundId, startTime, endTime, openPrice, currentPrice,
+      // totalUpShares, totalDownShares, bnbPool, sharePriceLocked, secondsLeft, bettingOpen
       const now = Math.floor(Date.now() / 1000)
-      const end  = Number(r.endTime)
+      const end   = Number(r.endTime)
       const start = Number(r.startTime)
       const duration = end - start
+      const secsLeftOnchain = Number(r.secondsLeft)
       const secsLeft = Math.max(0, end - now)
       const progress = duration > 0 ? Math.min(1, (now - start) / duration) : 0
 
-      // Bug 2 修复：roundId=0 且 endTime=0 → 合约未启动
+      // roundId=0 且 endTime=0 → 合约从未启动（第一笔下注前）
       const notStarted = Number(r.roundId) === 0 && end === 0
 
       const data: RoundData = {
-        roundId:          r.roundId,
-        startTime:        r.startTime,
-        endTime:          r.endTime,
-        openPrice:        r.openPrice,
-        closePrice:       r.closePrice,
-        openCumPrice:     r.openCumPrice,
-        openCumTimestamp: r.openCumTimestamp,
-        totalUpShares:    r.totalUpShares,
-        totalDownShares:  r.totalDownShares,
-        bnbPool:          r.bnbPool,
-        sharePriceLocked: r.sharePriceLocked,
-        settled:          r.settled,
-        upWon:            r.upWon,
-        voided:           r.voided,
-        bettingOpen:      !notStarted && r.bettingOpen,
-        secondsLeft:      secsLeft,
+        roundId:            r.roundId,
+        startTime:          r.startTime,
+        endTime:            r.endTime,
+        openPrice:          r.openPrice,
+        currentPrice:       r.currentPrice,
+        totalUpShares:      r.totalUpShares,
+        totalDownShares:    r.totalDownShares,
+        bnbPool:            r.bnbPool,
+        sharePriceLocked:   r.sharePriceLocked,
+        bettingOpen:        !notStarted && r.bettingOpen,
+        secondsLeftOnchain: secsLeftOnchain,
+        secondsLeft:        secsLeft,
         progress,
         notStarted,
       }
       setRound(data)
       setError(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : '数据加载失败')
+      setError(e instanceof Error ? e.message : '加载失败，请检查网络或合约配置')
     } finally {
       setLoading(false)
     }

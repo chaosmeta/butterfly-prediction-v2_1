@@ -46,7 +46,6 @@ export default function BetPanel({ slot, round, signer, address, onToast, onRefr
 
   const handleBet = useCallback(async () => {
     if (!signer || !address || !direction || !round) return
-    const rid = round.roundId
 
     try {
       const tokenContract = getSignerToken(signer)
@@ -81,11 +80,11 @@ export default function BetPanel({ slot, round, signer, address, onToast, onRefr
         onToast({ type: 'success', title: '授权成功' })
       }
 
-      // 2. 下注
+      // 2. 下注（合约签名：placeBet(uint8 slot, bool isUp, uint16 shares)，无 roundId 参数）
       setStep('betting')
       onToast({ type: 'info', title: '等待下注', message: '请在钱包中确认交易…' })
       const isUp = direction === 'up'
-      const betTx = await predContract.placeBet(slot, rid, isUp, BigInt(shares))
+      const betTx = await predContract.placeBet(slot, isUp, shares)
       onToast({ type: 'info', title: '交易发送', message: '等待区块确认…', txHash: betTx.hash })
       await betTx.wait()
 
