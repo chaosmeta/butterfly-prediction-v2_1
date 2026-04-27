@@ -38,27 +38,46 @@ export function useMyBets(
     if (!address || currentRoundId === null) return
     setLoading(true)
     try {
-      const contract = getReadPrediction()
+      const readContract = getReadPrediction()
+      // getMyBet 使用 msg.sender，必须用 signer 调用
+      const signerContract = signer ? getSignerPrediction(signer) : null
       const results: BetRecord[] = []
 
       for (let slot = 0; slot < 3; slot++) {
-        // 获取该 slot 当前轮 ID
-        const rid: bigint = await contract.currentRoundId(slot)
+        // currentRoundId mapping 的 key 是 uint256
+        const rid: bigint = await readContract.currentRoundId(BigInt(slot))
         const lookback = rid > 20n ? rid - 20n : 0n
 
         for (let id = rid; id >= lookback; id--) {
           try {
-            // 使用合约公共 mapping bets(slot, roundId, address)
-            // 返回 (uint16 shares, bool isUp, bool claimed)
-            const bet = await contract.bets(slot, id, address)
+            // bets(slot, roundId, address) — 读取任意地址的下注，用 readProvider 即可
+            const bet = await readContract.bets(slot, id, address)
             if (Number(bet.shares) === 0) continue
 
-            // 使用 getMyBet 获取结算状态和预计收益（合约直接计算好）
-            const myBet = await contract.getMyBet(slot, id)
-            const round = await contract.rounds(slot, id)
+            // rounds(slot, rid) — 读取轮次结算状态
+            const round = await readContract.rounds(slot, id)
 
-            const isWinner = myBet.isWinner as boolean
-            const settled  = myBet.roundSettled as boolean
+            // getMyBet 需要 msg.sender，优先用 signerContract；
+            // 若未连接钱包则降级用 bets + rounds 数据推断
+            let isWinner = false
+            let settled  = round.settled as boolean
+            let estimatedClaim = 0n
+
+            if (signerContract) {
+              try {
+                const myBet = await signerContract.getMyBet(slot, id)
+                isWinner       = myBet.isWinner as boolean
+                settled        = myBet.roundSettled as boolean
+                estimatedClaim = myBet.estimatedClaim as bigint
+              } catch {
+                // getMyBet 失败时回退到手动推断
+                const upWon = round.upWon as boolean
+                isWinner = settled && (bet.isUp === upWon)
+              }
+            } else {
+              const upWon = round.upWon as boolean
+              isWinner = settled && (bet.isUp === upWon)
+            }
 
             results.push({
               slot:           slot as SlotId,
@@ -71,10 +90,10 @@ export function useMyBets(
               upWon:          settled ? (round.upWon as boolean) : null,
               voided:         round.voided as boolean,
               claimable:      settled && !round.voided && isWinner && !(bet.claimed as boolean),
-              estimatedClaim: myBet.estimatedClaim as bigint,
+              estimatedClaim,
             })
           } catch {
-            // 某轮不存在时跳过
+            // 某轮不存在或查询失败时跳过
           }
         }
       }
@@ -84,7 +103,7 @@ export function useMyBets(
     } finally {
       setLoading(false)
     }
-  }, [address, currentRoundId])
+  }, [address, signer, currentRoundId])
 
   // 合约 claim(slot, rid) 是单轮领取，逐轮调用
   const claimRounds = useCallback(async (slot: SlotId, roundIds: bigint[]) => {

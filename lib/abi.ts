@@ -7,26 +7,29 @@ export const PREDICTION_ABI = [
   // rounds() 公共 mapping：Round 结构体 13 个字段
   'function rounds(uint8 slot, uint256 rid) view returns (uint256 startTime, uint256 endTime, uint256 openPrice, uint256 closePrice, uint256 openCumPrice, uint256 openCumTimestamp, uint256 totalUpShares, uint256 totalDownShares, uint256 bnbPool, uint256 sharePriceLocked, bool settled, bool upWon, bool voided)',
 
-  // currentRoundId：每个 slot 独立的自增 ID
-  'function currentRoundId(uint8 slot) view returns (uint256)',
+  // currentRoundId：mapping(uint256 => uint256)，key 是 uint256（slot 编号）
+  'function currentRoundId(uint256 slot) view returns (uint256)',
 
-  // bets()：公共 mapping，返回 Bet 结构体
+  // bets()：公共 mapping bets[slot][roundId][user]
   'function bets(uint8 slot, uint256 roundId, address user) view returns (uint16 shares, bool isUp, bool claimed)',
 
-  // getMyBet：合约提供的便捷查询，含 isWinner / estimatedClaim
+  // getMyBet：用 msg.sender，必须用 signer（写入 provider）调用
   'function getMyBet(uint8 slot, uint256 rid) view returns (uint16 shares, bool isUp, bool claimed, bool isWinner, bool roundSettled, uint256 estimatedClaim)',
 
-  // placeBet：slot, isUp, shares（没有 roundId 参数，合约自动用 currentRoundId）
+  // placeBet：slot(uint8), isUp(bool), shares(uint16)，无 roundId
   'function placeBet(uint8 slot, bool isUp, uint16 shares) external',
 
   // settle：触发结算并开启下一轮
   'function settle(uint8 slot) external',
 
-  // claim：单轮领奖（slot + 单个 roundId）
+  // claim：单轮领奖
   'function claim(uint8 slot, uint256 rid) external',
 
-  // previewPayout：预估收益
+  // previewPayout：预估赢家可得 BNB（估算）
   'function previewPayout(uint8 slot, bool isUp, uint16 shares) view returns (uint256 estimatedBnb)',
+
+  // getProtocolStats：协议统计，含 currentSharePrice
+  'function getProtocolStats() view returns (uint256 reservePool, uint256 totalBurned, uint256 totalWinnerPaid, uint256 totalInflow, uint256 vaultBnbBalance, uint256 currentSharePrice)',
 ] as const
 
 // ─── ERC-20 Token ABI ─────────────────────────────────────────────

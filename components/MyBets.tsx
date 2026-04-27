@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { ethers } from 'ethers'
 import type { BetRecord } from '@/hooks/useMyBets'
 import type { SlotId } from '@/lib/config'
 import type { ToastData } from './Toast'
@@ -19,7 +20,7 @@ interface Props {
 function statusBadge(bet: BetRecord) {
   if (bet.voided)   return <span className="text-xs px-2 py-0.5 rounded-full bg-surface-2 text-muted">已作废</span>
   if (!bet.settled) return <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">进行中</span>
-  const isWin = (bet.upWon && bet.upShares > 0n) || (!bet.upWon && bet.downShares > 0n)
+  const isWin = bet.upWon !== null && (bet.isUp === bet.upWon)
   return isWin
     ? <span className="text-xs px-2 py-0.5 rounded-full bg-up-dim text-up font-medium">赢了</span>
     : <span className="text-xs px-2 py-0.5 rounded-full bg-down-dim text-down font-medium">输了</span>
@@ -82,8 +83,7 @@ export default function MyBets({ bets, loading, claiming, address, onFetch, onCl
       {bets.length > 0 && (
         <div className="space-y-2">
           {bets.map((bet) => {
-            const myDir = bet.upShares > 0n ? '涨' : '跌'
-            const myShares = bet.upShares > 0n ? bet.upShares : bet.downShares
+            const myDir = bet.isUp ? '涨' : '跌'
             return (
               <div
                 key={`${bet.slot}-${bet.roundId}`}
@@ -95,16 +95,16 @@ export default function MyBets({ bets, loading, claiming, address, onFetch, onCl
                     <span className="text-xs text-fg-dim">#{bet.roundId.toString()}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span
-                      className={cn(
-                        'text-sm font-semibold',
-                        bet.upShares > 0n ? 'text-up' : 'text-down',
-                      )}
-                    >
-                      {myDir} {myShares.toString()} 份
+                    <span className={cn('text-sm font-semibold', bet.isUp ? 'text-up' : 'text-down')}>
+                      {myDir} {bet.shares.toString()} 份
                     </span>
                     {statusBadge(bet)}
                   </div>
+                  {bet.claimable && bet.estimatedClaim > 0n && (
+                    <div className="text-xs text-muted mt-0.5">
+                      预计可领 {ethers.formatEther(bet.estimatedClaim).slice(0, 8)} BNB
+                    </div>
+                  )}
                 </div>
                 {bet.claimable && (
                   <button
