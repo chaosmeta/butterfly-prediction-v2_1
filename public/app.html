@@ -947,11 +947,11 @@ async function loadMyBets(){
     ])
     const rids = [rid0, rid1, rid2]
 
-    // 第二步：为每个 slot 构建要查询的 roundId 列表（只查最近 10 轮）
+    // 第二步：为每个 slot 构建要查询的 roundId 列表（查最近 50 轮，覆盖历史下注）
     const queries = []
     for(let s=0;s<3;s++){
       const rid = rids[s]
-      const from = rid > 10n ? rid - 10n : 0n
+      const from = rid > 50n ? rid - 50n : 0n
       for(let id=rid; id>=from; id--){
         queries.push({ s, id })
       }
@@ -997,9 +997,9 @@ async function loadMyBets(){
   list.innerHTML = records.map(r => {
     const isWinner   = r.settled && !r.voided && (r.isUp === r.upWon)
     const isLoser    = r.settled && !r.voided && (r.isUp !== r.upWon)
-    // timeExpired: 时间到了但合约 settled 还是 false（等待 settle() 被调用）
-    const timeExpired = !r.settled && r.endTime > 0 && now > r.endTime
-    // claimable: 已 settled 未领取，无论赢输都调 claim() — 赢得 BNB+代币，输只退代币
+    // needSettle: 合约确认未 settled 且时间已过（用 endTime>0 + 本地时间作粗判，最终合约自行验证）
+    const needSettle = !r.settled && r.endTime > 0 && now > r.endTime
+    // claimable: 已 settled 未领取
     const claimable = r.settled && !r.claimed && !r.voided
 
     let badge = '', badgeClass = 'badge-pending'
@@ -1011,23 +1011,20 @@ async function loadMyBets(){
       badge = '赢了'; badgeClass = 'badge-win'
     } else if(r.settled && isLoser){
       badge = '输了'; badgeClass = 'badge-lose'
-    } else if(timeExpired){
+    } else if(needSettle){
       badge = '待结算'; badgeClass = 'badge-pending'
     } else {
       badge = '进行中'; badgeClass = 'badge-pending'
     }
 
-    // 按钮逻辑：
-    // - 已 settled + 赢 → 领取 BNB 奖励（含代币退还）
-    // - 已 settled + 输 → 取回代币
-    // - 时间到但未 settled → 触发结算（调 settle，结算后可领取）
     let actionBtn = ''
     if(claimable){
       const btnLabel = isWinner ? '领取 BNB 奖励' : '取回代币'
       const btnClass = isWinner ? 'btn-primary' : 'btn-outline'
       actionBtn = `<button class="btn ${btnClass} btn-sm" onclick="claimReward(${r.slot},'${r.roundId}',this)">${btnLabel}</button>`
-    } else if(timeExpired){
-      actionBtn = `<button class="btn btn-outline btn-sm" onclick="triggerSettleForRecord(${r.slot},this)">触发结算</button>`
+    } else if(needSettle){
+      // 注意：triggerSettleForRecord 传的是该记录的 r.slot，不是当前面板的 currentSlot
+      actionBtn = `<button class="btn btn-outline btn-sm" onclick="triggerSettleForRecord(${r.slot},'${r.roundId}',this)">结算 #${r.roundId}</button>`
     }
 
     return `<div class="record-item">
@@ -1039,7 +1036,7 @@ async function loadMyBets(){
         </div>
         ${isWinner && !r.claimed ? `<div style="font-size:.72rem;color:var(--up);margin-top:3px">赢得 BNB 奖励 + 代币退还</div>` : ''}
         ${isLoser  && !r.claimed ? `<div style="font-size:.72rem;color:var(--fg3);margin-top:3px">代币将原额退还</div>` : ''}
-        ${timeExpired ? `<div style="font-size:.72rem;color:var(--fg3);margin-top:3px">先触发结算，结算后即可领取</div>` : ''}
+        ${needSettle ? `<div style="font-size:.72rem;color:var(--fg3);margin-top:3px">结算后可领取代币${isWinner?'+ BNB 奖励':''}</div>` : ''}
       </div>
       ${actionBtn}
     </div>`
@@ -1097,43 +1094,55 @@ async function triggerSettle(){
 }
 
 // 记录列表里的"触发结算"按钮
-async function triggerSettleForRecord(slot, btn){
+// slot: 该记录的档位（0/1/2），ridStr: 该记录的 roundId 字符串（用于提示）
+async function triggerSettleForRecord(slot, ridStr, btn){
   if(!signer){ toast('error','请先连接钱包'); return }
+  const origText = btn.textContent
   btn.disabled = true
-  btn.innerHTML = '<span class="spinner"></span> 结算中'
+  btn.innerHTML = '<span class="spinner"></span>'
+
+  // settle(slot) 操作的是该 slot 的 currentRoundId
+  // 如果你的那轮已是 currentRoundId 且 secondsLeft=0，这里就能成功
+  // 如果 currentRoundId 已经推进到新轮，说明旧轮已经被自动结算，直接刷新记录
+  const slotNum = Number(slot)
   try{
-    const predC = getSignerPred()
-    const tx = await predC.settle(Number(slot))
-    toast('info','结算交易已发送','等待上链确认...')
-    const receipt = await tx.wait()
-    if(receipt.status === 0){
-      // 失败时刷新，判断是否已自动推进新轮
-      await fetchRound()
-      toast(bettingOpen ? 'success' : 'error',
-        bettingOpen ? '新一轮已自动开启' : '结算失败',
-        bettingOpen ? '合约已自动结算并开启新轮' : '请稍后重试')
-      if(bettingOpen) loadMyBets()
-      else { btn.disabled = false; btn.textContent = '触发结算' }
-    } else {
-      toast('success','结算完成')
-      fetchRound()
-      loadMyBets()
+    // 先查该 slot 的链上状态
+    const readC = getReadPred()
+    const raw = await readC.getCurrentRound(slotNum)
+    const onChainSecondsLeft = raw[9]
+    const onChainRoundId = raw[0]
+    const targetRid = BigInt(ridStr)
+
+    if(onChainRoundId !== targetRid){
+      // currentRoundId 已推进，说明那轮已被自动结算
+      toast('info','该轮已自动结算','正在刷新记录...')
+      await loadMyBets()
+      return
     }
+
+    if(onChainSecondsLeft > 0n){
+      toast('warning', '该轮未到期', `链上还剩 ${onChainSecondsLeft} 秒，无法结算`)
+      btn.disabled = false; btn.textContent = origText
+      return
+    }
+
+    // secondsLeft=0 且 roundId 匹配，发结算交易
+    const predC = getSignerPred()
+    const tx = await predC.settle(slotNum)
+    toast('info','结算交易已发送','等待上链...')
+    const receipt = await tx.wait()
+    if(receipt && receipt.status === 1){
+      toast('success','结算完成，可以领取了')
+    }
+    await loadMyBets()
   } catch(e){
     const msg = (e.reason ?? e.shortMessage ?? e.message ?? '')
     const low = msg.toLowerCase()
-    if(low.includes('reject') || low.includes('denied')){
-      btn.disabled = false; btn.textContent = '触发结算'; return
-    }
-    await fetchRound()
-    if(bettingOpen){
-      toast('success','新一轮已自动开启')
-      loadMyBets()
-    } else {
+    if(!low.includes('reject') && !low.includes('denied')){
       toast('error','结算失败', msg.slice(0,200))
-      btn.disabled = false
-      btn.textContent = '触发结算'
     }
+    btn.disabled = false
+    btn.textContent = origText
   }
 }
 
