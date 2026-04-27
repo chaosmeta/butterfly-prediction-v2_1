@@ -934,31 +934,56 @@ async function loadMyBets(){
   const list = document.getElementById('bets-list')
   list.innerHTML=`<div style="text-align:center;color:var(--fg3);padding:16px;font-size:.875rem">加载中...</div>`
 
-  const records = []
   const now = Math.floor(Date.now() / 1000)
+  const records = []
   try{
     const c = getReadPred()
+
+    // 第一步：并发获取三个 slot 的当前 roundId
+    const [rid0, rid1, rid2] = await Promise.all([
+      c.currentRoundId(0n),
+      c.currentRoundId(1n),
+      c.currentRoundId(2n),
+    ])
+    const rids = [rid0, rid1, rid2]
+
+    // 第二步：为每个 slot 构建要查询的 roundId 列表（只查最近 10 轮）
+    const queries = []
     for(let s=0;s<3;s++){
-      const rid = await c.currentRoundId(BigInt(s))
-      const from = rid > 20n ? rid - 20n : 0n
+      const rid = rids[s]
+      const from = rid > 10n ? rid - 10n : 0n
       for(let id=rid; id>=from; id--){
-        try{
-          const bet = await c.bets(s, id, address)
-          // ethers v6 Result 用索引访问：[0]=shares [1]=isUp [2]=claimed
-          if(Number(bet[0]) === 0) continue
-          const round = await c.rounds(s, id)
-          // rounds 返回：[0]startTime [1]endTime ... [10]settled [11]upWon [12]voided
-          records.push({
-            slot: s, roundId: id,
-            shares: Number(bet[0]), isUp: bet[1], claimed: bet[2],
-            endTime: Number(round[1]),
-            settled: round[10], upWon: round[11], voided: round[12],
-          })
-        } catch{}
+        queries.push({ s, id })
       }
     }
+
+    // 第三步：并发查所有 bet，过滤出有下注的
+    const betResults = await Promise.all(
+      queries.map(q => c.bets(q.s, q.id, address).catch(()=>null))
+    )
+
+    // 第四步：只对有下注的轮次（shares>0）再并发查 round 数据
+    const hasBet = queries
+      .map((q,i) => ({ ...q, bet: betResults[i] }))
+      .filter(x => x.bet && Number(x.bet[0]) > 0)
+
+    const roundResults = await Promise.all(
+      hasBet.map(x => c.rounds(x.s, x.id).catch(()=>null))
+    )
+
+    hasBet.forEach((x, i) => {
+      const round = roundResults[i]
+      if(!round) return
+      records.push({
+        slot: x.s, roundId: x.id,
+        shares: Number(x.bet[0]), isUp: x.bet[1], claimed: x.bet[2],
+        endTime: Number(round[1]),
+        settled: round[10], upWon: round[11], voided: round[12],
+      })
+    })
+
   } catch(e){
-    list.innerHTML=`<div style="text-align:center;color:var(--down);padding:16px;font-size:.875rem">加载失败：${e.message?.slice(0,80)}</div>`
+    list.innerHTML=`<div style="text-align:center;color:var(--down);padding:16px;font-size:.875rem">加载失败，请刷新重试</div>`
     return
   }
 
@@ -1026,30 +1051,29 @@ async function triggerSettle(){
   if(!signer){ toast('error','请先连接钱包'); return }
   const btn = document.getElementById('settle-btn')
   btn.disabled = true
+  btn.innerHTML = '<span class="spinner"></span> 检查中'
+
+  // 先刷新一次链上状态，如果新轮已经开启（bettingOpen=true）则无需 settle
+  await fetchRound()
+  if(bettingOpen || notStarted){
+    toast('success','新一轮已自动开启')
+    btn.classList.add('hidden')
+    if(address) loadMyBets()
+    return
+  }
+
   btn.innerHTML = '<span class="spinner"></span> 结算中'
   try{
     const predC = getSignerPred()
-    // 不手动设 gasLimit，让钱包自动 estimateGas（settle 内含 DEX swap，gas 不固定）
     const tx = await predC.settle(Number(currentSlot))
     toast('info','结算交易已发送','等待上链确认...')
     const receipt = await tx.wait()
-    if(receipt.status === 0){
-      // 交易失败：很可能是轮次已被 placeBet 自动推进，刷新后检查
-      await fetchRound()
-      if(bettingOpen){
-        toast('success','新一轮已自动开启','有人下注时合约已自动结算并开启新轮')
-        btn.classList.add('hidden')
-      } else {
-        toast('error','结算失败','请稍后重试')
-        btn.disabled = false
-        btn.textContent = '触发结算'
-      }
-    } else {
+    if(receipt && receipt.status === 1){
       toast('success','结算完成，新一轮已自动开启')
-      btn.classList.add('hidden')
-      fetchRound()
-      if(address) loadMyBets()
     }
+    btn.classList.add('hidden')
+    await fetchRound()
+    if(address) loadMyBets()
   } catch(e){
     const msg = (e.reason ?? e.shortMessage ?? e.message ?? '')
     const low = msg.toLowerCase()
@@ -1058,10 +1082,10 @@ async function triggerSettle(){
       btn.textContent = '触发结算'
       return
     }
-    // 任何失败都先刷新轮次，可能已经自动推进了
+    // 失败再刷新，如果新轮已自动开启就静默处理
     await fetchRound()
     if(bettingOpen){
-      toast('success','新一轮已自动开启','合约已自动结算')
+      toast('success','新一轮已自动开启')
       btn.classList.add('hidden')
       if(address) loadMyBets()
     } else {
