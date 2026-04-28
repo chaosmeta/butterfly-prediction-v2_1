@@ -197,6 +197,7 @@
           <div style="display:flex;align-items:center;gap:8px">
             <span class="badge badge-closed" id="status-badge">加载中</span>
             <button id="settle-btn" class="btn btn-outline btn-sm hidden" onclick="triggerSettle()">触发结算</button>
+            <button class="btn btn-outline btn-sm" onclick="diagChain()" title="查询链上真实状态">诊断</button>
           </div>
         </div>
 
@@ -1044,6 +1045,31 @@ async function loadMyBets(){
 }
 
 // 任何人都可以调用 settle(slot) 触发结算并自动开新轮
+// 直接读链上三个 slot 的真实状态，帮助诊断结算问题
+async function diagChain(){
+  const c = getReadPred()
+  const now = Math.floor(Date.now() / 1000)
+  try{
+    const [r0, r1, r2] = await Promise.all([
+      c.getCurrentRound(0),
+      c.getCurrentRound(1),
+      c.getCurrentRound(2),
+    ])
+    const fmt = (r, slot) => {
+      const rid = r[0].toString()
+      const end = Number(r[2])
+      const secsLeft = Number(r[9])
+      const open = r[10]
+      const endStr = end > 0 ? new Date(end*1000).toLocaleTimeString() : '—'
+      return `[${['20m','1h','24h'][slot]}] #${rid} | 结束:${endStr} | 剩余:${secsLeft}s | 投注:${open?'开':'关'}`
+    }
+    const msg = [fmt(r0,0), fmt(r1,1), fmt(r2,2)].join('\n')
+    alert('链上状态（复制给开发者）:\n\n' + msg)
+  } catch(e){
+    alert('查询失败: ' + e.message)
+  }
+}
+
 async function triggerSettle(attempt){
   attempt = attempt ?? 1
   if(!signer){ toast('error','请先连接钱包'); return }
