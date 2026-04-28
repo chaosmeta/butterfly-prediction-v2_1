@@ -198,6 +198,7 @@
             <span class="badge badge-closed" id="status-badge">加载中</span>
             <button id="settle-btn" class="btn btn-outline btn-sm hidden" onclick="triggerSettle()">触发结算</button>
             <button class="btn btn-outline btn-sm" onclick="diagChain()" title="查询链上真实状态">诊断</button>
+            <button class="btn btn-outline btn-sm" onclick="manualClaim()" title="手动输入轮次取回代币">手动取回</button>
           </div>
         </div>
 
@@ -1045,28 +1046,59 @@ async function loadMyBets(){
 }
 
 // 任何人都可以调用 settle(slot) 触发结算并自动开新轮
-// 直接读链上三个 slot 的真实状态，帮助诊断结算问题
+// 直接读链上三个 slot 的真实状态，每个 slot 独立查，某个失败不影响其他
 async function diagChain(){
   const c = getReadPred()
-  const now = Math.floor(Date.now() / 1000)
-  try{
-    const [r0, r1, r2] = await Promise.all([
-      c.getCurrentRound(0),
-      c.getCurrentRound(1),
-      c.getCurrentRound(2),
-    ])
-    const fmt = (r, slot) => {
-      const rid = r[0].toString()
-      const end = Number(r[2])
+  const slotNames = ['20分钟','1小时','24小时']
+  const lines = []
+  for(let s = 0; s < 3; s++){
+    try{
+      const r = await c.getCurrentRound(s)
+      const rid      = r[0].toString()
+      const end      = Number(r[2])
       const secsLeft = Number(r[9])
-      const open = r[10]
-      const endStr = end > 0 ? new Date(end*1000).toLocaleTimeString() : '—'
-      return `[${['20m','1h','24h'][slot]}] #${rid} | 结束:${endStr} | 剩余:${secsLeft}s | 投注:${open?'开':'关'}`
+      const open     = r[10]
+      const endStr   = end > 0 ? new Date(end*1000).toLocaleString() : '—'
+      lines.push(`[${slotNames[s]}] 轮次#${rid} | 结束时间:${endStr} | 剩余:${secsLeft}秒 | 投注:${open?'开':'关'}`)
+    } catch(e){
+      lines.push(`[${slotNames[s]}] 查询失败(未初始化或合约异常)`)
     }
-    const msg = [fmt(r0,0), fmt(r1,1), fmt(r2,2)].join('\n')
-    alert('链上状态（复制给开发者）:\n\n' + msg)
+  }
+  alert('链上实时状态：\n\n' + lines.join('\n\n') + '\n\n--- 请将以上内容截图 ---')
+}
+
+// 手动 claim：直接输入 slot 和 roundId，绕开 settle 问题取回代币
+async function manualClaim(){
+  if(!signer){ toast('error','请先连接钱包'); return }
+  const slotInput = prompt('输入档位编号（0=20分钟，1=1小时，2=24小时）：')
+  if(slotInput === null) return
+  const ridInput = prompt('输入你下注的轮次编号（roundId）：')
+  if(ridInput === null) return
+  const slot = Number(slotInput)
+  const rid  = BigInt(ridInput)
+  if(isNaN(slot) || slot < 0 || slot > 2){ alert('档位输入错误'); return }
+  try{
+    // 先检查该轮是否 settled
+    const c = getReadPred()
+    const round = await c.rounds(slot, rid)
+    const settled = round[10]
+    const voided  = round[12]
+    if(!settled && !voided){
+      const yes = confirm(`轮次 #${rid} 尚未结算，强行 claim 会失败。\n是否仍然尝试？`)
+      if(!yes) return
+    }
+    const bet = await c.bets(slot, rid, address)
+    if(Number(bet[0]) === 0){ alert('该轮次你没有下注记录'); return }
+    const predC = getSignerPred()
+    const tx = await predC.claim(slot, rid)
+    toast('info','claim 交易已发送','等待上链...')
+    await tx.wait()
+    toast('success','操作成功，代币已退还')
+    loadMyBets()
+    refreshBalance()
   } catch(e){
-    alert('查询失败: ' + e.message)
+    const msg = e.reason ?? e.shortMessage ?? e.message ?? ''
+    toast('error','claim 失败', msg.slice(0,200))
   }
 }
 
